@@ -202,8 +202,8 @@ int main() {
                 printf ("Key pressed in window %" PRIu32 "\n",
                         kp->event);
                 
-                // start xterm
-                if (kp->detail == 53) {
+                // start xterm by pressing Enter
+                if (kp->detail == 36) {
                     pid_t pid = fork();
                     if (pid == 0) {
                         // child process
