@@ -8,6 +8,7 @@
 #include <xcb/xproto.h>
 #include <unistd.h>
 #include <cstring>
+#include <sys/wait.h>
 
 short currentDesktop;
 bool floatingWindows;
@@ -144,6 +145,20 @@ int main() {
 
                 printf ("Key pressed in window %" PRIu32 "\n",
                         kp->event);
+                
+                // start xterm by pressing Enter
+                if (kp->detail == 36) {
+                    pid_t pid = fork();
+                    if (pid == 0) {
+                        // child process
+                        execlp("xterm", "xterm", "-e", "/bin/sh", (char *)NULL);
+                        exit(1); // exec failed
+                    } else if (pid > 0) {
+                        printf("Started xterm PID %d\n", pid);
+                    } else {
+                        perror("fork");
+                    }
+                }
                 break;
             }
             case XCB_KEY_RELEASE: {
