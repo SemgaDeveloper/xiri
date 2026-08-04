@@ -12,80 +12,18 @@
 short currentDesktop;
 bool floatingWindows;
 
-static void testCookie(xcb_void_cookie_t, xcb_connection_t*, const char *);
+static void testCookie(xcb_void_cookie_t, xcb_connection_t*, const char *);   /* functions's skeletons, the functions's description are at the bottom of project */                                                                                 
 static void setCursor (xcb_connection_t*, xcb_screen_t*, xcb_window_t, int);
+static void setColormap (xcb_connection_t* , xcb_window_t, xcb_screen_t*);
+static void setPixmap (xcb_connection_t*,xcb_window_t ,xcb_screen_t*);
+static void drawRedDot (xcb_connection_t*, xcb_window_t, xcb_screen_t*);
+void print_modifiers (uint32_t mask);
 
 
-static void
-    testCookie (xcb_void_cookie_t cookie,
-                xcb_connection_t *connection,
-                const char *errMessage )
-    {   
-        xcb_generic_error_t *error = xcb_request_check (connection, cookie);
-        if (error) {
-            fprintf (stderr, "ERROR: %s : %" PRIu8 "\n", errMessage , error->error_code);
-            xcb_disconnect (connection);
-            exit (-1);
-        }   
-    }   
-
-static void
-  setCursor (xcb_connection_t *connection,
-              xcb_screen_t     *screen,
-              xcb_window_t      window,
-              int               cursorId )
-  {
-      xcb_font_t font = xcb_generate_id (connection);
-      xcb_void_cookie_t fontCookie = xcb_open_font_checked (connection,
-                                                            font,
-                                                            strlen ("cursor"),
-                                                            "cursor" );
-      testCookie (fontCookie, connection, "can't open font");
-      xcb_cursor_t cursor = xcb_generate_id (connection);
-      xcb_create_glyph_cursor (connection,
-                               cursor,
-                               font,
-                               font,
-                               cursorId,
-                               cursorId + 1,
-                               0, 0, 0, 0, 0, 0 );
-      xcb_gcontext_t gc = xcb_generate_id (connection);
-      uint32_t mask = XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_FONT;
-      uint32_t values_list[3];
-      values_list[0] = screen->black_pixel;
-      values_list[1] = screen->white_pixel;
-      values_list[2] = font;
-      xcb_void_cookie_t gcCookie = xcb_create_gc_checked (connection, gc, window, mask, values_list);
-      testCookie (gcCookie, connection, "can't create gc");
-      mask = XCB_CW_CURSOR;
-      uint32_t value_list = cursor;
-      xcb_change_window_attributes (connection, window, mask, &value_list);
-      xcb_free_cursor (connection, cursor);
-      fontCookie = xcb_close_font_checked (connection, font);
-      testCookie (fontCookie, connection, "can't close font");
-  }
-
-
-void
-print_modifiers (uint32_t mask)
-{
-    const char *MODIFIERS[] = {
-            "Shift", "Lock", "Ctrl", "Alt",
-            "Mod2", "Mod3", "Mod4", "Mod5",
-            "Button1", "Button2", "Button3", "Button4", "Button5"
-    };
-    printf ("Modifier mask: ");
-    for (const char **modifier = MODIFIERS ; mask; mask >>= 1, ++modifier) {
-        if (mask & 1) {
-           printf ("%s", *modifier);
-        }
-    }
-   printf ("\n");
-}
 
 int main() {
   
-  std::cout << "Subscribe to Semga!" << std::endl;
+  std::cout << "Hello to my tt subscribers and viewers from reddit!" << std::endl;
 
   xcb_connection_t *connection = xcb_connect (NULL, NULL); 
   const xcb_setup_t *setup = xcb_get_setup (connection);
@@ -103,7 +41,7 @@ int main() {
   window = xcb_generate_id (connection);
   
   mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
-  values[0] = screen -> white_pixel;
+  values[0] = screen -> white_pixel; 
   values[1] = XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS |
               XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION |
               XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW |
@@ -124,8 +62,12 @@ int main() {
                      screen -> root_visual, /* visual, idk what is this too */
                      mask, values); /* masks, still aren't used */
   xcb_map_window (connection, window);
-  xcb_flush (connection);
+  xcb_flush(connection);
   setCursor(connection, screen, window, 68);
+  setPixmap(connection, window, screen);
+  setColormap(connection, window, screen);
+/*drawRedDot(connection, window, screen); -- function that wrote ai for testing pixmap and colormap */
+
   printf ("\n");
   printf ("Informations of screen %" PRIu32 ":\n", screen->root);
   printf ("  width: %" PRIu16 "\n", screen->width_in_pixels);
@@ -133,6 +75,8 @@ int main() {
   printf ("  white pixel: %" PRIu32 "\n", screen->white_pixel);
   printf ("  black pixel: %" PRIu32 "\n", screen->black_pixel);
   printf ("\n"); 
+  
+
   xcb_change_window_attributes (connection, window, XCB_EVENT_MASK_BUTTON_PRESS, values);
 
         xcb_generic_event_t *event;
@@ -227,4 +171,153 @@ int main() {
   xcb_disconnect(connection);
 
   return 0;
+}
+
+
+static void
+    testCookie (xcb_void_cookie_t cookie,
+                xcb_connection_t *connection,
+                const char *errMessage )
+    {   
+        xcb_generic_error_t *error = xcb_request_check (connection, cookie);
+        if (error) {
+            fprintf (stderr, "ERROR: %s : %" PRIu8 "\n", errMessage , error->error_code);
+            xcb_disconnect (connection);
+            exit (-1);
+        }   
+    }   
+
+static void
+  setCursor (xcb_connection_t *connection,
+              xcb_screen_t     *screen,
+              xcb_window_t      window,
+              int               cursorId )
+  {
+      xcb_font_t font = xcb_generate_id (connection);
+      xcb_void_cookie_t fontCookie = xcb_open_font_checked (connection,
+                                                            font,
+                                                            strlen ("cursor"),
+                                                            "cursor" );
+      testCookie (fontCookie, connection, "can't open font");
+      xcb_cursor_t cursor = xcb_generate_id (connection);
+      xcb_create_glyph_cursor (connection,
+                               cursor,
+                               font,
+                               font,
+                               cursorId,
+                               cursorId + 1,
+                               0, 0, 0, 0, 0, 0 );
+      xcb_gcontext_t gc = xcb_generate_id (connection);
+      uint32_t mask = XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_FONT;
+      uint32_t values_list[3];
+      values_list[0] = screen->black_pixel;
+      values_list[1] = screen->white_pixel;
+      values_list[2] = font;
+      xcb_void_cookie_t gcCookie = xcb_create_gc_checked (connection, gc, window, mask, values_list);
+      testCookie (gcCookie, connection, "can't create gc");
+      mask = XCB_CW_CURSOR;
+      uint32_t value_list = cursor;
+      xcb_change_window_attributes (connection, window, mask, &value_list);
+      xcb_free_cursor (connection, cursor);
+      fontCookie = xcb_close_font_checked (connection, font);
+      testCookie (fontCookie, connection, "can't close font");
+  }
+
+
+void
+print_modifiers (uint32_t mask)
+{
+    const char *MODIFIERS[] = {
+            "Shift", "Lock", "Ctrl", "Alt",
+            "Mod2", "Mod3", "Mod4", "Mod5",
+            "Button1", "Button2", "Button3", "Button4", "Button5"
+    };
+    printf ("Modifier mask: ");
+    for (const char **modifier = MODIFIERS ; mask; mask >>= 1, ++modifier) {
+        if (mask & 1) {
+           printf ("%s", *modifier);
+        }
+    }
+   printf ("\n");
+}
+
+static void
+setColormap (xcb_connection_t *connection, xcb_window_t window, xcb_screen_t *screen) 
+{
+  xcb_colormap_t colormapId = xcb_generate_id (connection);
+  xcb_create_colormap (connection,
+                       XCB_COLORMAP_ALLOC_NONE,
+                       colormapId,
+                       window,
+                       screen -> root_visual);
+
+  xcb_alloc_color (connection,
+                   colormapId,
+                   65535,
+                   0,
+                   0);
+  printf ("setColormap working!\n");
+  xcb_free_colormap(connection,
+                    colormapId);
+  printf ("Colormap freed.\n");
+}
+
+static void
+setPixmap (xcb_connection_t *connection, xcb_window_t window, xcb_screen_t *screen) 
+{
+  xcb_pixmap_t pixmapId = xcb_generate_id (connection);
+  
+  xcb_create_pixmap (connection,
+                     screen -> root_depth,
+                     pixmapId,
+                     window,
+                     1280,
+                     720);
+  printf ("setPixmap working!\n");
+  xcb_free_pixmap(connection,
+                  pixmapId);
+  printf ("Pixmap freed.\n");
+}
+
+static void drawRedDot(xcb_connection_t* connection,
+                        xcb_window_t window,
+                        xcb_screen_t* screen)
+{
+    // 1) Allocate a red pixel (get actual pixel from reply)
+    xcb_colormap_t cm = xcb_generate_id(connection);
+    xcb_create_colormap(connection,
+                         XCB_COLORMAP_ALLOC_NONE,
+                         cm,
+                         window,
+                         screen->root_visual);
+
+    auto ck = xcb_alloc_color(connection, cm, 65535, 0, 0);
+    xcb_alloc_color_reply_t* rep = xcb_alloc_color_reply(connection, ck, nullptr);
+    if (!rep) return;
+    uint32_t redPixel = rep->pixel;
+    free(rep);
+
+    // 2) Create a GC using that redPixel
+    xcb_gcontext_t gc = xcb_generate_id(connection);
+    uint32_t mask = XCB_GC_FOREGROUND;
+    uint32_t values[] = { redPixel };
+    xcb_create_gc(connection, gc, window, mask, values);
+
+    // 3) Draw dot at center
+    const uint16_t dotSize = 8;
+    int16_t cx = static_cast<int16_t>(screen->width_in_pixels / 2);
+    int16_t cy = static_cast<int16_t>(screen->height_in_pixels / 2);
+
+    xcb_rectangle_t r;
+    r.x = cx - (dotSize / 2);
+    r.y = cy - (dotSize / 2);
+    r.width = dotSize;
+    r.height = dotSize;
+
+    xcb_poly_fill_rectangle(connection, window, gc, 1, &r);
+    xcb_flush(connection);
+
+    // 4) Cleanup
+    xcb_free_gc(connection, gc);
+    xcb_free_colormap(connection, cm);
 }
