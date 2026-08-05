@@ -20,7 +20,7 @@ static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t keyTab, keyEnter, keyQ;
+static xcb_keycode_t keyTab, keyEnter, keyQ, keyE, keyB;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 
@@ -80,6 +80,7 @@ static void killFocused() {
 static xcb_keycode_t firstKeycode(xcb_keysym_t sym) {
     xcb_keycode_t *kc = xcb_key_symbols_get_keycode(keysyms, sym);
     xcb_keycode_t result = kc ? kc[0] : 0;
+    fprintf(stderr, "sym=%u kc[0]=%u\n", (unsigned)sym, (unsigned)kc[0]);
     if (kc) free(kc);
     return result;
 }
@@ -95,11 +96,15 @@ static void grabKeys() {
     keyTab   = firstKeycode(0xff09); /* XK_Tab */
     keyEnter = firstKeycode(0xff0d); /* XK_Return */
     keyQ     = firstKeycode(0x0071); /* XK_q */
-
+    keyE     = firstKeycode(0x0065); /* XK_e */
+    keyB     = firstKeycode(0x0062); /* XK_b */
     grabKey(XCB_MOD_MASK_4, keyTab);
     grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_SHIFT, keyTab);
     grabKey(XCB_MOD_MASK_4, keyEnter);
     grabKey(XCB_MOD_MASK_4, keyQ);
+    grabKey(XCB_MOD_MASK_4, keyE);
+    grabKey(XCB_MOD_MASK_4, keyB);
+
 }
 
 /* event handlers */
@@ -164,8 +169,11 @@ static void onKeyPress(xcb_generic_event_t *event) {
     xcb_key_press_event_t *kp = (xcb_key_press_event_t *)event;
     uint16_t state = kp->state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2); /* strip caps/numlock */
     if (!(state & XCB_MOD_MASK_4)) return;
-
+        fprintf(stderr, "KP detail=%u rawstate=0x%02x keyE=%u keyTab=%u keyQ=%u keyB=%u keyEnter=%u\n",
+            kp->detail, state,
+            keyE, keyTab, keyQ, keyEnter);
     if (kp->detail == keyTab) {
+      std::cout << "Button Tab registered" << std::endl;
         if (kp->time - lastSwitchTime < 150) return;
         lastSwitchTime = kp->time;
         if (state & XCB_MOD_MASK_SHIFT)
@@ -174,11 +182,23 @@ static void onKeyPress(xcb_generic_event_t *event) {
             focusClient(focusedIndex + 1);
     } else if (kp->detail == keyEnter) {
         /* ignore auto-repeat floods */
+      std::cout << "Button Enter registered" << std::endl;
         if (kp->time - lastSpawnTime < 400) return;
         lastSpawnTime = kp->time;
         spawn("xterm -fa 'DejaVu Sans Mono' -fs 12");
     } else if (kp->detail == keyQ) {
+      std::cout << "Button Q registered";
         killFocused();
+    } else if (kp->detail == keyE) {
+      std::cout << "Button E registered" << std::endl;
+      if (kp->time - lastSpawnTime < 400) return;
+      lastSpawnTime = kp->time;
+      spawn("rofi -show drun");
+    } else if (kp->detail == keyB) {
+      std::cout << "Button B registered" << std::endl;
+      if (kp->time - lastSpawnTime < 400) return;
+      lastSpawnTime = kp->time;
+      spawn("rofi -show drun");
     }
 }
 
@@ -214,7 +234,7 @@ int main() {
     grabKeys();
     xcb_flush(connection);
 
-    std::cout << "minimal monocle wm started (Mod4+tab switch, Mod4+enter xterm, Mod4+q kill)\n";
+    std::cout << "minimal monocle wm started (Mod4+tab switch, Mod4+enter xterm, Mod4+q kill, Mod4+e rofi)\n";
 
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
