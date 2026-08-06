@@ -11,6 +11,11 @@
 #include <vector>
 #include <algorithm>
 #include <csignal>
+// variables
+
+
+bool TilingIsOn = false;
+
 
 /* state */
 static std::vector<xcb_window_t> clients;
@@ -20,7 +25,7 @@ static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t keyTab, keyEnter, keyQ, keyE, keyB;
+static xcb_keycode_t keyTab, keyEnter, keyQ, keyE, keyB, keyLeft, keyRight;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 
@@ -48,7 +53,7 @@ static void monocleResize(xcb_window_t win) {
     uint32_t values[4] = {0, 0, screen->width_in_pixels, screen->height_in_pixels};
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                     XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-    xcb_configure_window(connection, win, mask, values);
+    xcb_configure_window (connection, win, mask, values);
 }
 
 static void applyMonocleAll() {
@@ -69,6 +74,16 @@ static void focusClient(size_t idx) {
 
     xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
     xcb_flush(connection);
+}
+
+static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
+  std::cout << "Window switched, current window is:" << focusClient << std::endl;
+  if (kp->time - lastSwitchTime < 150) return;
+      lastSwitchTime = kp->time;
+  if (state & XCB_MOD_MASK_SHIFT)
+      focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
+    else
+      focusClient(focusedIndex + 1);
 }
 
 static void killFocused() {
@@ -98,13 +113,16 @@ static void grabKeys() {
     keyQ     = firstKeycode(0x0071); /* XK_q */
     keyE     = firstKeycode(0x0065); /* XK_e */
     keyB     = firstKeycode(0x0062); /* XK_b */
+    keyLeft  = firstKeycode(0xff51);
+    keyRight = firstKeycode(0xff53);
     grabKey(XCB_MOD_MASK_4, keyTab);
     grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_SHIFT, keyTab);
     grabKey(XCB_MOD_MASK_4, keyEnter);
     grabKey(XCB_MOD_MASK_4, keyQ);
     grabKey(XCB_MOD_MASK_4, keyE);
     grabKey(XCB_MOD_MASK_4, keyB);
-
+    grabKey(XCB_MOD_MASK_4, keyLeft);
+    grabKey(XCB_MOD_MASK_4, keyRight);
 }
 
 /* event handlers */
@@ -174,12 +192,13 @@ static void onKeyPress(xcb_generic_event_t *event) {
             keyE, keyTab, keyQ, keyEnter);
     if (kp->detail == keyTab) {
       std::cout << "Button Tab registered" << std::endl;
-        if (kp->time - lastSwitchTime < 150) return;
+       /* if (kp->time - lastSwitchTime < 150) return;
         lastSwitchTime = kp->time;
         if (state & XCB_MOD_MASK_SHIFT)
             focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
         else
-            focusClient(focusedIndex + 1);
+            focusClient(focusedIndex + 1); */
+      switchWindow(kp, state);
     } else if (kp->detail == keyEnter) {
         /* ignore auto-repeat floods */
       std::cout << "Button Enter registered" << std::endl;
@@ -194,11 +213,10 @@ static void onKeyPress(xcb_generic_event_t *event) {
       if (kp->time - lastSpawnTime < 400) return;
       lastSpawnTime = kp->time;
       spawn("rofi -show drun");
-    } else if (kp->detail == keyB) {
-      std::cout << "Button B registered" << std::endl;
-      if (kp->time - lastSpawnTime < 400) return;
-      lastSpawnTime = kp->time;
-      spawn("rofi -show drun");
+    } else if (kp->detail == keyLeft) {
+      std::cout << "Left Button registered" << std::endl;
+    } else if (kp->detail == keyRight) {
+      std::cout << "Right Button registered" << std::endl;
     }
 }
 
