@@ -13,9 +13,11 @@
 #include <csignal>
 // variables
 
+/* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
+uint32_t customWidgth = 1280; // Change resolution what your windows will open 
+uint32_t customHeight = 720; // Also custom resolution will be applied through xrandr
+const char *monitor = "eDP-1"; // Change to your monitor name if eDP-1 does not suits you
 
-bool TilingIsOn = false;
-bool scrolltonextwin;
 
 
 /* state */
@@ -41,6 +43,8 @@ static const uint16_t lockMasks[4] = {
 
 /* helpers */
 
+
+
 static void spawn(const char *cmd) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -51,7 +55,7 @@ static void spawn(const char *cmd) {
 }
 
 static void monocleResize(xcb_window_t win) {
-    uint32_t values[4] = {0, 0, screen->width_in_pixels, screen->height_in_pixels};
+    uint32_t values[4] = {0, 0, customWidgth, customHeight};
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                     XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
     xcb_configure_window (connection, win, mask, values);
@@ -65,7 +69,10 @@ static void applyMonocleAll() {
 
 static void focusClient(size_t idx) {
     if (clients.empty()) return;
+    // short clientsSize = clients.size();
+    // clientsSize = 1;
     focusedIndex = idx % clients.size();
+    // focusedIndex = clientsSize + 1;
     xcb_window_t win = clients[focusedIndex];
 
     monocleResize(win);
@@ -77,19 +84,50 @@ static void focusClient(size_t idx) {
     xcb_flush(connection);
 }
 
-static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
-  std::cout << "Window switched, current window is:" << focusClient << focusedIndex << std::endl;
+/* scrolling functions */
+
+static void focusNext(xcb_key_press_event_t *kp, uint16_t state) { 
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
-  if (state & XCB_MOD_MASK_SHIFT)
-      focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
-    else
-      if (scrolltonextwin == true) {
-        focusClient(focusedIndex + 1);
-      } else { 
-        focusClient(focusedIndex - 1);
-      }
+  if (state & XCB_MOD_MASK_SHIFT) {
+    focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
+  } else {
+    focusClient(focusedIndex + 1);   
+  }
 }
+
+static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) { 
+  if (kp->time - lastSwitchTime < 150) return;
+      lastSwitchTime = kp->time;
+  if (state & XCB_MOD_MASK_SHIFT) {
+    focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
+  } else {
+    if (focusedIndex > 0) {
+      focusClient(focusedIndex - 1);
+    } else {
+      focusClient(clients.size()- 1);
+    }
+  }
+}
+
+
+static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
+  std::cout << "Window switched, current window is:" << focusedIndex << std::endl;
+  if (kp->time - lastSwitchTime < 150) return;
+      lastSwitchTime = kp->time;
+  if (state & XCB_MOD_MASK_SHIFT) {
+    focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
+  } else {
+    focusClient(focusedIndex + 1);
+  }
+}
+
+static void changeResolution(const char *monitor ,uint32_t widgth, uint32_t height) {
+  std::string command = std::string("xrandr --output ") + monitor + std::string("--mode ") + std::to_string(widgth) + std::string("x") + std::to_string(height);
+  std::cout << command << std::endl;
+  spawn(command.c_str());
+}
+
 
 static void killFocused() {
     if (clients.empty()) return;
@@ -199,12 +237,6 @@ static void onKeyPress(xcb_generic_event_t *event) {
             keyE, keyTab, keyQ, keyEnter);
     if (kp->detail == keyTab) {
       std::cout << "Button Tab registered" << std::endl;
-       /* if (kp->time - lastSwitchTime < 150) return;
-        lastSwitchTime = kp->time;
-        if (state & XCB_MOD_MASK_SHIFT)
-            focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
-        else
-            focusClient(focusedIndex + 1); */
       switchWindow(kp, state);
     } else if (kp->detail == keyEnter) {
         /* ignore auto-repeat floods */
@@ -222,12 +254,10 @@ static void onKeyPress(xcb_generic_event_t *event) {
       spawn("rofi -show drun");
     } else if (kp->detail == keyLeft) {
       std::cout << "Left Button registered" << std::endl;
-      scrolltonextwin = false;
-      switchWindow(kp, state);
+      focusPrev(kp, state);
     } else if (kp->detail == keyRight) {
       std::cout << "Right Button registered" << std::endl;
-      scrolltonextwin = true;
-      switchWindow(kp, state);
+      focusNext(kp, state);
     }
 }
 
@@ -262,9 +292,11 @@ int main() {
     keysyms = xcb_key_symbols_alloc(connection);
     grabKeys();
     xcb_flush(connection);
-
+    
     std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D rofi, Mod4+LeftKey scroll left, Mod4+RightKey scroll right)\n";
-
+    spawn("feh --bg-scale ~/Pictures/wallpaper.jpg");
+    spawn("xrandr --output eDP-1 --mode 1280x720");
+    changeResolution(monitor, customWidgth, customHeight);
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
         switch (event->response_type & ~0x80) {

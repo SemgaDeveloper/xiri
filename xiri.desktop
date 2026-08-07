@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=xiri
+Comment=Log in using the xiri window manager
+Exec=/usr/local/bin/xiri
+TryExec=/usr/local/bin/xiri
+Icon=xiri
+Type-Application

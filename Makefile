@@ -87,6 +87,15 @@ help:
 	@echo "  make xephyr     - Build and run Xiri inside Xephyr (isolated)"
 	@echo "  make check-deps - Check if dependencies are installed"
 	@echo "  make help       - Show this help"
+	@echo "  make sddm       - Add .desktop file to run xiri session from sddm"``
+
+
+# sddm
+sddm:
+	@echo "Adding xiri to sddm as option... (super user required)"
+	@touch /usr/share/xsessions/xiri.desktop
+	@mv  xiri.desktop /usr/share/xsessions/xiri.desktop
+	@echo "Done! Now type sudo make install, to add xiri binary to /usr/local/bin and you will be able to boot into xiri."
 
 # phony targets
 .PHONY: all clean install uninstall run xephyr check-deps help
