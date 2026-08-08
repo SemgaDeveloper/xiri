@@ -16,19 +16,22 @@
 /* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
 uint32_t customWidgth = 1280; // Change resolution what your windows will open 
 uint32_t customHeight = 720; // Also custom resolution will be applied through xrandr
+uint32_t windowWidgth = customWidgth - 24; // You can set there what you want, this will affect only windows
+uint32_t windowHeight = customHeight - 24; // Same as previous string
 const char *monitor = "eDP-1"; // Change to your monitor name if eDP-1 does not suits you
-
+const char *terminal = "kitty"; //This terminal will be used for Mod4+t variant
 
 
 /* state */
 static std::vector<xcb_window_t> clients;
 static size_t focusedIndex = 0;
+bool fullscreen = false;
 
 static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyLeft, keyRight;
+static xcb_keycode_t keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 
@@ -55,11 +58,19 @@ static void spawn(const char *cmd) {
 }
 
 static void monocleResize(xcb_window_t win) {
+  if (fullscreen == false) {
+    uint32_t values[4] = {12, 12, windowWidgth, windowHeight};
+    uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                    XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    xcb_configure_window (connection, win, mask, values);
+  } else {
     uint32_t values[4] = {0, 0, customWidgth, customHeight};
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                     XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
     xcb_configure_window (connection, win, mask, values);
+  }
 }
+
 
 static void applyMonocleAll() {
     /* only focused window needs to be full size + raised;
@@ -69,10 +80,7 @@ static void applyMonocleAll() {
 
 static void focusClient(size_t idx) {
     if (clients.empty()) return;
-    // short clientsSize = clients.size();
-    // clientsSize = 1;
     focusedIndex = idx % clients.size();
-    // focusedIndex = clientsSize + 1;
     xcb_window_t win = clients[focusedIndex];
 
     monocleResize(win);
@@ -83,6 +91,34 @@ static void focusClient(size_t idx) {
     xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
     xcb_flush(connection);
 }
+
+static void refocusCleint() {
+    if (clients.empty()) return;
+    xcb_window_t win = clients[focusedIndex];
+
+    monocleResize(win);
+
+    uint32_t stackMode = XCB_STACK_MODE_ABOVE;
+    xcb_configure_window(connection, win, XCB_CONFIG_WINDOW_STACK_MODE, &stackMode);
+
+    xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
+    xcb_flush(connection);
+
+}
+
+static void changeFullscreen() {
+  if (clients.empty()) return;
+  if (fullscreen == false) {
+    fullscreen = true;
+    refocusCleint();
+    std::cout << "Current fullscreen mode is " << fullscreen << std::endl;
+  } else {
+    fullscreen = false;
+    refocusCleint();
+    std::cout << "Current fullscreen mode is " << fullscreen << std::endl;
+  }
+}
+
 
 /* scrolling functions */
 
@@ -157,6 +193,8 @@ static void grabKeys() {
     keyE     = firstKeycode(0x0065); /* XK_e */
     keyB     = firstKeycode(0x0062); /* XK_b */
     keyD     = firstKeycode(0x0044); /* XK_d */
+    keyT     = firstKeycode(0x0074); /* XK_t */
+    keyF     = firstKeycode(0x0046); /* XK_f */
     keyLeft  = firstKeycode(0xff51);
     keyRight = firstKeycode(0xff53);
     grabKey(XCB_MOD_MASK_4, keyTab);
@@ -166,6 +204,8 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4, keyE);
     grabKey(XCB_MOD_MASK_4, keyB);
     grabKey(XCB_MOD_MASK_4, keyD);
+    grabKey(XCB_MOD_MASK_4, keyT);
+    grabKey(XCB_MOD_MASK_4, keyF);
     grabKey(XCB_MOD_MASK_4, keyLeft);
     grabKey(XCB_MOD_MASK_4, keyRight);
 }
@@ -204,14 +244,14 @@ static void removeClient(xcb_window_t win) {
     clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
     if (!clients.empty()) focusClient(0);
 }
-
+/*
 static void onDestroyNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_destroy_notify_event_t *)event)->window);
-}
-
+} */
+/*
 static void onUnmapNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_unmap_notify_event_t *)event)->window);
-}
+} */
 
 static void onEnterNotify(xcb_generic_event_t *event) {
     xcb_enter_notify_event_t *en = (xcb_enter_notify_event_t *)event;
@@ -252,6 +292,14 @@ static void onKeyPress(xcb_generic_event_t *event) {
       if (kp->time - lastSpawnTime < 400) return;
       lastSpawnTime = kp->time;
       spawn("rofi -show drun");
+    } else if (kp->detail == keyT) {
+      std::cout << "Button T registered" << std::endl;
+      if (kp->time - lastSpawnTime < 400) return;
+      lastSpawnTime = kp->time;
+      spawn(terminal);
+    } else if (kp->detail == keyF) {
+      std::cout << "Button F registered" << std::endl;
+      changeFullscreen();
     } else if (kp->detail == keyLeft) {
       std::cout << "Left Button registered" << std::endl;
       focusPrev(kp, state);
@@ -295,15 +343,14 @@ int main() {
     
     std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D rofi, Mod4+LeftKey scroll left, Mod4+RightKey scroll right)\n";
     spawn("feh --bg-scale ~/Pictures/wallpaper.jpg");
-    spawn("xrandr --output eDP-1 --mode 1280x720");
-    changeResolution(monitor, customWidgth, customHeight);
+    spawn("xrandr --output eDP-1 --mode 1280x720"); // Put your own monitor and mode here
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
         switch (event->response_type & ~0x80) {
             case XCB_MAP_REQUEST:       onMapRequest(event);       break;
             case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
-            case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
-            case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break;
+        //    case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
+        //    case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break;
             case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
             case XCB_KEY_PRESS:         onKeyPress(event);         break;
             default: break;
