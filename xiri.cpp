@@ -130,9 +130,11 @@ static void focusNext(xcb_key_press_event_t *kp, uint16_t state) {
   } else {
     focusClient(focusedIndex + 1);   
   }
+   std::cout << "Window scrolled, current window is:" << focusedIndex << std::endl;
+   std::cout << "Current client size is:" << clients.size() << std::endl;
 }
 
-static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) { 
+static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) {
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
   if (state & XCB_MOD_MASK_SHIFT) {
@@ -141,14 +143,16 @@ static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) {
     if (focusedIndex > 0) {
       focusClient(focusedIndex - 1);
     } else {
-      focusClient(clients.size()- 1);
+      focusClient(clients.size() - 1);
     }
   }
+   std::cout << "Window scrolled, current window is:" << focusedIndex << std::endl;
+   std::cout << "Current client size is:" << clients.size() << std::endl;
+
 }
 
 
-static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
-  std::cout << "Window switched, current window is:" << focusedIndex << std::endl;
+static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) { 
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
   if (state & XCB_MOD_MASK_SHIFT) {
@@ -156,6 +160,8 @@ static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
   } else {
     focusClient(focusedIndex + 1);
   }
+   std::cout << "Window switched, current window is:" << focusedIndex << std::endl;
+   std::cout << "Current client size is:" << clients.size() << std::endl;
 }
 
 static void changeResolution(const char *monitor ,uint32_t widgth, uint32_t height) {
@@ -164,11 +170,17 @@ static void changeResolution(const char *monitor ,uint32_t widgth, uint32_t heig
   spawn(command.c_str());
 }
 
+static void removeClient(xcb_window_t win) {
+    clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
+    if (!clients.empty()) focusClient(0);
+}
 
 static void killFocused() {
+    xcb_window_t win = clients[focusedIndex];
     if (clients.empty()) return;
     xcb_kill_client(connection, clients[focusedIndex]);
     xcb_flush(connection);
+    removeClient(win);
 }
 
 static xcb_keycode_t firstKeycode(xcb_keysym_t sym) {
@@ -240,10 +252,8 @@ static void onConfigureRequest(xcb_generic_event_t *event) {
     xcb_configure_window(connection, cr->window, mask, values);
 }
 
-static void removeClient(xcb_window_t win) {
-    clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
-    if (!clients.empty()) focusClient(0);
-}
+
+
 /*
 static void onDestroyNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_destroy_notify_event_t *)event)->window);
@@ -342,8 +352,12 @@ int main() {
     xcb_flush(connection);
     
     std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D rofi, Mod4+LeftKey scroll left, Mod4+RightKey scroll right)\n";
+    //Autostart functions
     spawn("feh --bg-scale ~/Pictures/wallpaper.jpg");
     spawn("xrandr --output eDP-1 --mode 1280x720"); // Put your own monitor and mode here
+    spawn("setxkbmap -layout us,ru -option 'grp:alt_shift_toggle'");
+
+    // events receiving and sending it back
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
         switch (event->response_type & ~0x80) {
