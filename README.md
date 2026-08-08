@@ -1,8 +1,9 @@
-XIRI-WM IS IN VERY EARLY DEVELOPMENT BY UNEXPERIENCED PERSON, SO YOU WILL MEET BUGS THAT WILL BE FIXED LATER. I'M ALREADY BUSY ON IMPROVING USER EXPERIENCE BECAUSE EVENTS NOW SO BUGGY AND WM SOMETIMES SCROLLS WINDOWS BY ITSELF + I WILL MAKE IT MORE CUSTOMIZABLE IN FUTURE 
-
+XIRI-WM IS IN VERY EARLY DEVELOPMENT BY UNEXPERIENCED PERSON, SO YOU WILL MEET BUGS THAT WILL BE FIXED LATER. I'M ALREADY BUSY ON IMPROVING USER EXPERIENCE BECAUSE EVENTS NOW SO BUGGY. I ALREADY FIXED ISSUES WHEN WM COULD SCROLL WINDOWS BY ITLSEF + IMPROVED SCROLLING A LITTLE BIT BUT IT STILL CAN BE REWORKED IN FUTURE. ALSO CURRENTLY I'M BUSY ON ADDING MORE FEATURES.
 Thank you for supporting and testing xiri-wm! Because for now it's so unfinished and in active development.
-To get started, clone the repository by using git and then change directory to xiri. After all you can type "make help" to see what make file can do (Credits to neko-qt, he made make file and recoded almost everything in my window manager). But the make file still has some unfinished/not working stuff that will be fixed soon.
-If you want to run window manager, type "make xephyr" (xephyr installed required). 
+All credits to me and my contributor - neko-qt, special thank to him, because he reworked whole code of my wm and gave me idea how to continue, if he wasn't here, i will probably still struggle trying to do usable keyboard input, windows monocle tiling and other many things.
+How to get started:
+To get started, clone the repository by using git and then change directory to xiri. After all you can type "make help" to see what make file can do (Credits to neko-qt, he made make file).
+If you want to run window manager isolated, then type "make xephyr" (xephyr installed required). Else if you want to run it directly and use, check the installation tutorial at the bottom of README.md 
 Keybinds:
 Mod + Enter - open xterm (xterm installed required)
 Mod + D - open rofi (rofi installed required)
