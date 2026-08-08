@@ -11,6 +11,8 @@ Mod + Tab - switch between windows
 Mod + LeftArrow - scroll left
 Mod + RightArrow - scroll right
 Mod + Q - close focused window
+Mod + T - open terminal (it's your main terminal, you can change variable of your terminal in xiri.cpp, by default there is kitty)
+Mod + F - fullscreen change + refocus your window
 
 Installation tutorial:
 1.Download zip file of xiri
