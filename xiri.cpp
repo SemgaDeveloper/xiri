@@ -122,7 +122,32 @@ static void changeFullscreen() {
 
 /* scrolling functions */
 
+static void removeClient(xcb_window_t win) {
+    clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
+    if (!clients.empty()) focusClient(0);
+}
+
+
+static void checkClients() {
+  if (clients.empty()) return;
+  printf("Starting to check clients.");
+  for (size_t i = clients.size() - 1; i > 0; i--) {
+    xcb_window_t win = clients[i];
+    std::cout << "Checking window number " << i << std::endl;
+    auto cookie = xcb_get_window_attributes(connection, win);
+    auto reply = xcb_get_window_attributes_reply(connection, cookie, nullptr);
+    if (reply == nullptr) {
+      printf("Client is dead, clearing up it.");
+      removeClient(win);
+    } else {
+      std::cout << "Client is alive, doing nothing" << std::endl;
+    }
+  }
+}
+
+
 static void focusNext(xcb_key_press_event_t *kp, uint16_t state) { 
+  checkClients();
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
   if (state & XCB_MOD_MASK_SHIFT) {
@@ -135,6 +160,7 @@ static void focusNext(xcb_key_press_event_t *kp, uint16_t state) {
 }
 
 static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) {
+  checkClients();
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
   if (state & XCB_MOD_MASK_SHIFT) {
@@ -153,6 +179,7 @@ static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) {
 
 
 static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) { 
+  checkClients();
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
   if (state & XCB_MOD_MASK_SHIFT) {
@@ -170,10 +197,6 @@ static void changeResolution(const char *monitor ,uint32_t widgth, uint32_t heig
   spawn(command.c_str());
 }
 
-static void removeClient(xcb_window_t win) {
-    clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
-    if (!clients.empty()) focusClient(0);
-}
 
 static void killFocused() {
     xcb_window_t win = clients[focusedIndex];
