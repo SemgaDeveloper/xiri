@@ -5,6 +5,7 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 #include <xcb/xproto.h>
+#include <xcb/xcb_icccm.h>
 #include <unistd.h>
 #include <cstring>
 #include <sys/wait.h>
@@ -16,12 +17,13 @@
 /* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
 uint32_t customWidgth = 1280; // Change resolution what your windows will open 
 uint32_t customHeight = 720; // Also custom resolution will be applied through xrandr
-uint32_t windowWidgth = customWidgth - 24; // You can set there what you want, this will affect only windows
-uint32_t windowHeight = customHeight - 24; // Same as previous string
+uint32_t windowGap = 24;
+uint32_t windowWidgth = customWidgth - windowGap; // You can set there what you want, this will affect only windows
+uint32_t windowHeight = customHeight - windowGap; // Same as previous string
 const char *monitor = "eDP-1"; // Change to your monitor name if eDP-1 does not suits you
-const char *terminal = "kitty"; //This terminal will be used for Mod4+t variant
-
-
+const char *terminal = "kitty"; // This terminal will be used for Mod4+t variant
+const char *wallpaper = "~/Pictures/wallpaper.jpg"; // This will be used for setting up wallpaper with feh at startup
+const char *keyboardconfig = "-layout us,ru -option 'grp:alt_shift_toggle'"; // This will be used for running stxkbmap
 /* state */
 static std::vector<xcb_window_t> clients;
 static size_t focusedIndex = 0;
@@ -31,7 +33,7 @@ static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight;
+static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 
@@ -44,9 +46,9 @@ static const uint16_t lockMasks[4] = {
     XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2
 };
 
+
+
 /* helpers */
-
-
 
 static void spawn(const char *cmd) {
     pid_t pid = fork();
@@ -57,9 +59,10 @@ static void spawn(const char *cmd) {
     }
 }
 
+
 static void monocleResize(xcb_window_t win) {
   if (fullscreen == false) {
-    uint32_t values[4] = {12, 12, windowWidgth, windowHeight};
+    uint32_t values[4] = {windowGap/2, windowGap/2, windowWidgth, windowHeight};
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                     XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
     xcb_configure_window (connection, win, mask, values);
@@ -82,8 +85,8 @@ static void focusClient(size_t idx) {
     if (clients.empty()) return;
     focusedIndex = idx % clients.size();
     xcb_window_t win = clients[focusedIndex];
-
-    monocleResize(win);
+    applyMonocleAll();
+    // monocleResize(win);
 
     uint32_t stackMode = XCB_STACK_MODE_ABOVE;
     xcb_configure_window(connection, win, XCB_CONFIG_WINDOW_STACK_MODE, &stackMode);
@@ -95,8 +98,8 @@ static void focusClient(size_t idx) {
 static void refocusCleint() {
     if (clients.empty()) return;
     xcb_window_t win = clients[focusedIndex];
-
-    monocleResize(win);
+    applyMonocleAll();
+    // monocleResize(win);
 
     uint32_t stackMode = XCB_STACK_MODE_ABOVE;
     xcb_configure_window(connection, win, XCB_CONFIG_WINDOW_STACK_MODE, &stackMode);
@@ -122,6 +125,7 @@ static void changeFullscreen() {
 
 /* scrolling functions */
 
+
 static void removeClient(xcb_window_t win) {
     clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
     if (!clients.empty()) focusClient(0);
@@ -144,6 +148,7 @@ static void checkClients() {
     }
   }
 }
+
 
 
 static void focusNext(xcb_key_press_event_t *kp, uint16_t state) { 
@@ -191,12 +196,38 @@ static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
    std::cout << "Current client size is:" << clients.size() << std::endl;
 }
 
-static void changeResolution(const char *monitor ,uint32_t widgth, uint32_t height) {
-  std::string command = std::string("xrandr --output ") + monitor + std::string("--mode ") + std::to_string(widgth) + std::string("x") + std::to_string(height);
+
+static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber) {
+  if (clients.empty()) return;
+  if (kp->time - lastSwitchTime < 150) return;
+    lastSwitchTime = kp->time;
+  windownumber = windownumber - 1;
+  std::cout << "Activationg gotoWindow func, windownumber is " << windownumber << std::endl; 
+  xcb_window_t win = clients[windownumber];
+  auto cookie = xcb_get_window_attributes(connection, win);
+  auto reply = xcb_get_window_attributes_reply(connection, cookie, nullptr);
+  if (reply == nullptr) {
+    printf("Client are does not exists, window hasn't switched\n");
+  } else {
+    focusClient(windownumber);
+  }
+}
+
+static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height) {
+  std::string command = std::string("xrandr --output ") + monitorChoice + std::string(" --mode ") + std::to_string(widgth) + std::string("x") + std::to_string(height);
   std::cout << command << std::endl;
   spawn(command.c_str());
 }
 
+static void setupWallpaper(const char *wallpaperpath) {
+  std::string command = std::string("feh --bg-scale ") + wallpaperpath;
+  spawn(command.c_str());
+}
+
+static void setxkbmapconfig(const char *variant) {
+  std::string command = std::string("setxkbmap ") + variant;
+  spawn(command.c_str());
+}
 
 static void killFocused() {
     xcb_window_t win = clients[focusedIndex];
@@ -222,6 +253,16 @@ static void grabKey(uint16_t modifiers, xcb_keycode_t code) {
 }
 
 static void grabKeys() {
+    key1     = firstKeycode(0x0031); /* XK_1 */
+    key2     = firstKeycode(0x0032); /* XK_2 */
+    key3     = firstKeycode(0x0033); /* XK_3 */
+    key4     = firstKeycode(0x0034); /* XK_4 */
+    key5     = firstKeycode(0x0035); /* XK_5 */
+    key6     = firstKeycode(0x0036); /* XK_6 */
+    key7     = firstKeycode(0x0037); /* XK_7 */
+    key8     = firstKeycode(0x0038); /* XK_8 */
+    key9     = firstKeycode(0x0039); /* XK_9 */
+    key0     = firstKeycode(0x0030); /* XK_0 */
     keyTab   = firstKeycode(0xff09); /* XK_Tab */
     keyEnter = firstKeycode(0xff0d); /* XK_Return */
     keyQ     = firstKeycode(0x0071); /* XK_q */
@@ -232,6 +273,16 @@ static void grabKeys() {
     keyF     = firstKeycode(0x0046); /* XK_f */
     keyLeft  = firstKeycode(0xff51);
     keyRight = firstKeycode(0xff53);
+    grabKey(XCB_MOD_MASK_4, key0);
+    grabKey(XCB_MOD_MASK_4, key1);
+    grabKey(XCB_MOD_MASK_4, key2);
+    grabKey(XCB_MOD_MASK_4, key3);
+    grabKey(XCB_MOD_MASK_4, key4);
+    grabKey(XCB_MOD_MASK_4, key5);
+    grabKey(XCB_MOD_MASK_4, key6);
+    grabKey(XCB_MOD_MASK_4, key7);
+    grabKey(XCB_MOD_MASK_4, key8);
+    grabKey(XCB_MOD_MASK_4, key9);
     grabKey(XCB_MOD_MASK_4, keyTab);
     grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_SHIFT, keyTab);
     grabKey(XCB_MOD_MASK_4, keyEnter);
@@ -275,8 +326,6 @@ static void onConfigureRequest(xcb_generic_event_t *event) {
     xcb_configure_window(connection, cr->window, mask, values);
 }
 
-
-
 /*
 static void onDestroyNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_destroy_notify_event_t *)event)->window);
@@ -303,23 +352,19 @@ static void onEnterNotify(xcb_generic_event_t *event) {
 
 static void onKeyPress(xcb_generic_event_t *event) {
     xcb_key_press_event_t *kp = (xcb_key_press_event_t *)event;
-    uint16_t state = kp->state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2); /* strip caps/numlock */
+    uint16_t state = kp->state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2); 
     if (!(state & XCB_MOD_MASK_4)) return;
-        fprintf(stderr, "KP detail=%u rawstate=0x%02x keyE=%u keyTab=%u keyQ=%u keyB=%u keyEnter=%u\n",
-            kp->detail, state,
-            keyE, keyTab, keyQ, keyEnter);
     if (kp->detail == keyTab) {
       std::cout << "Button Tab registered" << std::endl;
       switchWindow(kp, state);
     } else if (kp->detail == keyEnter) {
-        /* ignore auto-repeat floods */
       std::cout << "Button Enter registered" << std::endl;
         if (kp->time - lastSpawnTime < 400) return;
         lastSpawnTime = kp->time;
         spawn("xterm -fa 'DejaVu Sans Mono' -fs 12");
     } else if (kp->detail == keyQ) {
       std::cout << "Button Q registered";
-        killFocused();
+      killFocused();
     } else if (kp->detail == keyD) {
       std::cout << "Button D registered" << std::endl;
       if (kp->time - lastSpawnTime < 400) return;
@@ -340,7 +385,40 @@ static void onKeyPress(xcb_generic_event_t *event) {
       std::cout << "Right Button registered" << std::endl;
       focusNext(kp, state);
     }
-}
+      else if (kp->detail == key1) {
+      std::cout << "Button 1 registered" << std::endl;
+      gotoWindow(kp, 1);
+    } else if (kp->detail == key2) {
+      std::cout << "Button 2 registered" << std::endl;
+      gotoWindow(kp, 2);
+    } else if (kp->detail == key3) {
+      std::cout << "Button 3 registered" << std::endl;
+      gotoWindow(kp, 3);
+    } else if (kp->detail == key4) {
+      std::cout << "Button 4 registered" << std::endl;
+      gotoWindow(kp, 4);
+    } else if (kp->detail == key5) {
+      std::cout << "Button 5 registered" << std::endl;
+      gotoWindow(kp, 5);
+    } else if (kp->detail == key6) {
+      std::cout << "Button 6 registered" << std::endl;
+      gotoWindow(kp, 6);
+    } else if (kp->detail == key7) {
+      std::cout << "Button 7 registered" << std::endl;
+      gotoWindow(kp, 7);
+    } else if (kp->detail == key8) {
+      std::cout << "Button 8 registered" << std::endl;
+      gotoWindow(kp, 8);
+    } else if (kp->detail == key9) {
+      std::cout << "Button 9 registered" << std::endl;
+      gotoWindow(kp, 9);
+    } else if (kp->detail == key0) {
+      std::cout << "Button 0 registered" << std::endl;
+      gotoWindow(kp, 1);
+    }     
+} 
+
+
 
 /* main */
 
@@ -374,12 +452,12 @@ int main() {
     grabKeys();
     xcb_flush(connection);
     
-    std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D rofi, Mod4+LeftKey scroll left, Mod4+RightKey scroll right)\n";
-    //Autostart functions
-    spawn("feh --bg-scale ~/Pictures/wallpaper.jpg");
-    spawn("xrandr --output eDP-1 --mode 1280x720"); // Put your own monitor and mode here
-    spawn("setxkbmap -layout us,ru -option 'grp:alt_shift_toggle'");
-
+    std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D application launcher, Mod4+T terminal, Mod4+LeftKey scroll left, Mod4+RightKey scroll right, Mod4+(0-9) gotoWindow)\n";
+    //Autostart functions //
+    changeResolution(monitor, customWidgth, customHeight);
+    setupWallpaper(wallpaper);
+    setxkbmapconfig(keyboardconfig);
+    // spawn("setxkbmap -layout us,ru -option 'grp:alt_shift_toggle'");
     // events receiving and sending it back
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
