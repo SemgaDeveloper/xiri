@@ -33,7 +33,7 @@ static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight;
+static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight, keyC;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 
@@ -122,6 +122,14 @@ static void changeFullscreen() {
   }
 }
 
+static void centerFocused() {
+  if (clients.empty()) return;
+  xcb_window_t win = clients[focusedIndex];
+  monocleResize(win);
+  xcb_flush(connection);
+  std::cout << "Focused window snapped back to default geometry" << std::endl;
+}
+
 
 /* scrolling functions */
 
@@ -134,17 +142,18 @@ static void removeClient(xcb_window_t win) {
 
 static void checkClients() {
   if (clients.empty()) return;
-  printf("Starting to check clients.");
-  for (size_t i = clients.size() - 1; i > 0; i--) {
+  printf("Starting to check clients.\n");
+  for (size_t i = clients.size(); i-- > 0;) {
     xcb_window_t win = clients[i];
     std::cout << "Checking window number " << i << std::endl;
     auto cookie = xcb_get_window_attributes(connection, win);
     auto reply = xcb_get_window_attributes_reply(connection, cookie, nullptr);
     if (reply == nullptr) {
-      printf("Client is dead, clearing up it.");
+      printf("Client is dead, clearing up it.\n");
       removeClient(win);
     } else {
       std::cout << "Client is alive, doing nothing" << std::endl;
+      free(reply);
     }
   }
 }
@@ -202,6 +211,7 @@ static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber) {
   if (kp->time - lastSwitchTime < 150) return;
     lastSwitchTime = kp->time;
   windownumber = windownumber - 1;
+  if (windownumber >= clients.size()) return;
   std::cout << "Activationg gotoWindow func, windownumber is " << windownumber << std::endl; 
   xcb_window_t win = clients[windownumber];
   auto cookie = xcb_get_window_attributes(connection, win);
@@ -210,7 +220,31 @@ static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber) {
     printf("Client are does not exists, window hasn't switched\n");
   } else {
     focusClient(windownumber);
+    free(reply);
   }
+}
+
+
+static void moveColumnLeft(xcb_key_press_event_t *kp) {
+  if (clients.size() < 2) return;
+  if (kp->time - lastSwitchTime < 150) return;
+  lastSwitchTime = kp->time;
+
+  size_t targetIndex = (focusedIndex == 0) ? clients.size() - 1 : focusedIndex - 1;
+  std::swap(clients[focusedIndex], clients[targetIndex]);
+  focusClient(targetIndex);
+  std::cout << "Column moved left, now at position " << targetIndex << std::endl;
+}
+
+static void moveColumnRight(xcb_key_press_event_t *kp) {
+  if (clients.size() < 2) return;
+  if (kp->time - lastSwitchTime < 150) return;
+  lastSwitchTime = kp->time;
+
+  size_t targetIndex = (focusedIndex + 1) % clients.size();
+  std::swap(clients[focusedIndex], clients[targetIndex]);
+  focusClient(targetIndex);
+  std::cout << "Column moved right, now at position " << targetIndex << std::endl;
 }
 
 static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height) {
@@ -230,8 +264,8 @@ static void setxkbmapconfig(const char *variant) {
 }
 
 static void killFocused() {
-    xcb_window_t win = clients[focusedIndex];
     if (clients.empty()) return;
+    xcb_window_t win = clients[focusedIndex];
     xcb_kill_client(connection, clients[focusedIndex]);
     xcb_flush(connection);
     removeClient(win);
@@ -240,7 +274,7 @@ static void killFocused() {
 static xcb_keycode_t firstKeycode(xcb_keysym_t sym) {
     xcb_keycode_t *kc = xcb_key_symbols_get_keycode(keysyms, sym);
     xcb_keycode_t result = kc ? kc[0] : 0;
-    fprintf(stderr, "sym=%u kc[0]=%u\n", (unsigned)sym, (unsigned)kc[0]);
+    fprintf(stderr, "sym=%u keycode=%u\n", (unsigned)sym, (unsigned)result);
     if (kc) free(kc);
     return result;
 }
@@ -273,6 +307,7 @@ static void grabKeys() {
     keyF     = firstKeycode(0x0046); /* XK_f */
     keyLeft  = firstKeycode(0xff51);
     keyRight = firstKeycode(0xff53);
+    keyC     = firstKeycode(0x0063); /* XK_c */
     grabKey(XCB_MOD_MASK_4, key0);
     grabKey(XCB_MOD_MASK_4, key1);
     grabKey(XCB_MOD_MASK_4, key2);
@@ -294,6 +329,9 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4, keyF);
     grabKey(XCB_MOD_MASK_4, keyLeft);
     grabKey(XCB_MOD_MASK_4, keyRight);
+    grabKey(XCB_MOD_MASK_4, keyC);
+    grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_CONTROL, keyLeft);
+    grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_CONTROL, keyRight);
 }
 
 /* event handlers */
@@ -326,14 +364,13 @@ static void onConfigureRequest(xcb_generic_event_t *event) {
     xcb_configure_window(connection, cr->window, mask, values);
 }
 
-/*
 static void onDestroyNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_destroy_notify_event_t *)event)->window);
-} */
-/*
+}
+
 static void onUnmapNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_unmap_notify_event_t *)event)->window);
-} */
+}
 
 static void onEnterNotify(xcb_generic_event_t *event) {
     xcb_enter_notify_event_t *en = (xcb_enter_notify_event_t *)event;
@@ -379,11 +416,24 @@ static void onKeyPress(xcb_generic_event_t *event) {
       std::cout << "Button F registered" << std::endl;
       changeFullscreen();
     } else if (kp->detail == keyLeft) {
-      std::cout << "Left Button registered" << std::endl;
-      focusPrev(kp, state);
+      if (state & XCB_MOD_MASK_CONTROL) {
+        std::cout << "Ctrl+Left registered" << std::endl;
+        moveColumnLeft(kp);
+      } else {
+        std::cout << "Left Button registered" << std::endl;
+        focusPrev(kp, state);
+      }
     } else if (kp->detail == keyRight) {
-      std::cout << "Right Button registered" << std::endl;
-      focusNext(kp, state);
+      if (state & XCB_MOD_MASK_CONTROL) {
+        std::cout << "Ctrl+Right registered" << std::endl;
+        moveColumnRight(kp);
+      } else {
+        std::cout << "Right Button registered" << std::endl;
+        focusNext(kp, state);
+      }
+    } else if (kp->detail == keyC) {
+      std::cout << "Button C registered" << std::endl;
+      centerFocused();
     }
       else if (kp->detail == key1) {
       std::cout << "Button 1 registered" << std::endl;
@@ -414,7 +464,7 @@ static void onKeyPress(xcb_generic_event_t *event) {
       gotoWindow(kp, 9);
     } else if (kp->detail == key0) {
       std::cout << "Button 0 registered" << std::endl;
-      gotoWindow(kp, 1);
+      gotoWindow(kp, 10);
     }     
 } 
 
@@ -434,8 +484,6 @@ int main() {
     const xcb_setup_t *setup = xcb_get_setup(connection);
     xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
     screen = iter.data;
-
-    /* SubstructureRedirect fails if another WM runs */
     uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
                          XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
     xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(
@@ -452,7 +500,7 @@ int main() {
     grabKeys();
     xcb_flush(connection);
     
-    std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D application launcher, Mod4+T terminal, Mod4+LeftKey scroll left, Mod4+RightKey scroll right, Mod4+(0-9) gotoWindow)\n";
+    std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D application launcher, Mod4+T terminal, Mod4+LeftKey scroll left, Mod4+RightKey scroll right, Mod4+Ctrl+Left/Right move column, Mod4+C center window, Mod4+(0-9) gotoWindow)\n";
     //Autostart functions //
     changeResolution(monitor, customWidgth, customHeight);
     setupWallpaper(wallpaper);
@@ -464,8 +512,8 @@ int main() {
         switch (event->response_type & ~0x80) {
             case XCB_MAP_REQUEST:       onMapRequest(event);       break;
             case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
-        //    case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
-        //    case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break;
+            case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
+            case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break;
             case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
             case XCB_KEY_PRESS:         onKeyPress(event);         break;
             default: break;
