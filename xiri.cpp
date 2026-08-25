@@ -11,6 +11,8 @@
 #include <sys/wait.h>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
+#include <string>
 #include <csignal>
 // variables
 
@@ -24,7 +26,13 @@ const char *monitor = "eDP-1"; // Change to your monitor name if eDP-1 does not 
 const char *terminal = "kitty"; // This terminal will be used for Mod4+t variant
 const char *wallpaper = "~/Pictures/wallpaper.jpg"; // This will be used for setting up wallpaper with feh at startup
 const char *keyboardconfig = "-layout us,ru -option 'grp:alt_shift_toggle'"; // This will be used for running stxkbmap
+const char *applicationlauncher = "rofi -show drun"; // This will be used for running application launcher
+const char *customApplication = "librewolf"; // This will be used for enter key
+const char *screentaker = "spectacle"; // This will be used for taking screenshots 
+
+
 /* state */
+
 static std::vector<xcb_window_t> clients;
 static size_t focusedIndex = 0;
 bool fullscreen = false;
@@ -33,9 +41,21 @@ static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight;
+static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight, printScreen;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
+static xcb_atom_t netWmWindowType;
+static xcb_atom_t netWmWindowTypeDock;
+
+enum class KeyAction {
+  SwitchWindow, SpawnTerminal, KillFocused, SpawnLauncher,
+  SpawnConfiguredTerminal, ToggleFullscreen, FocusPrevious, FocusNext,
+  GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
+  GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
+  launchScreenshot, launchSpecialApplication, exitSession
+};
+
+static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
 
 /* lock modifiers that must be grabbed in every combination, or grabs
    silently fail to match whenever numlock/capslock is on */
@@ -49,6 +69,44 @@ static const uint16_t lockMasks[4] = {
 
 
 /* helpers */
+
+static xcb_atom_t internAtom(const char *name) {
+  xcb_intern_atom_cookie_t cookie = xcb_intern_atom(connection, 0, strlen(name), name);
+  xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(connection, cookie, nullptr);
+  if (!reply) return XCB_ATOM_NONE;
+  xcb_atom_t atom = reply->atom;
+  free(reply);
+  return atom;
+}
+
+static bool isUtilityWindow(xcb_window_t window) {
+  if (netWmWindowType != XCB_ATOM_NONE && netWmWindowTypeDock != XCB_ATOM_NONE) {
+    xcb_get_property_cookie_t cookie = xcb_get_property(
+      connection, 0, window, netWmWindowType, XCB_ATOM_ATOM, 0, 8);
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(connection, cookie, nullptr);
+    if (reply) {
+      auto *types = static_cast<xcb_atom_t *>(xcb_get_property_value(reply));
+      int typeCount = xcb_get_property_value_length(reply) / sizeof(xcb_atom_t);
+      for (int i = 0; i < typeCount; ++i) {
+        if (types[i] == netWmWindowTypeDock) {
+          free(reply);
+          return true;
+        }
+      }
+      free(reply);
+    }
+  }
+
+  xcb_get_property_cookie_t cookie = xcb_get_property(
+    connection, 0, window, XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 0, 64);
+  xcb_get_property_reply_t *reply = xcb_get_property_reply(connection, cookie, nullptr);
+  if (!reply) return false;
+  std::string className(static_cast<char *>(xcb_get_property_value(reply)),
+              xcb_get_property_value_length(reply));
+  free(reply);
+  return className.find("Polybar") != std::string::npos ||
+       className.find("polybar") != std::string::npos;
+}
 
 static void spawn(const char *cmd) {
     pid_t pid = fork();
@@ -198,7 +256,7 @@ static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
 
 
 static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber) {
-  if (clients.empty()) return;
+  if (windownumber == 0 || windownumber > clients.size()) return;
   if (kp->time - lastSwitchTime < 150) return;
     lastSwitchTime = kp->time;
   windownumber = windownumber - 1;
@@ -230,11 +288,24 @@ static void setxkbmapconfig(const char *variant) {
 }
 
 static void killFocused() {
-    xcb_window_t win = clients[focusedIndex];
     if (clients.empty()) return;
+  xcb_window_t win = clients[focusedIndex];
     xcb_kill_client(connection, clients[focusedIndex]);
     xcb_flush(connection);
     removeClient(win);
+}
+
+static void launchScreenshot() {
+  spawn(screentaker);
+}
+
+static void launchSpecialApplication() {
+  spawn(customApplication);
+}
+
+static void exitSession() {
+  xcb_disconnect(connection);
+  exit(0);
 }
 
 static xcb_keycode_t firstKeycode(xcb_keysym_t sym) {
@@ -271,8 +342,21 @@ static void grabKeys() {
     keyD     = firstKeycode(0x0044); /* XK_d */
     keyT     = firstKeycode(0x0074); /* XK_t */
     keyF     = firstKeycode(0x0046); /* XK_f */
-    keyLeft  = firstKeycode(0xff51);
+    keyLeft  = firstKeycode(0xff51); 
     keyRight = firstKeycode(0xff53);
+    printScreen = firstKeycode(0xff61); /* XK_Print */
+    keyActions = {
+      {keyTab, KeyAction::SwitchWindow}, {keyEnter, KeyAction::launchSpecialApplication},
+      {keyQ, KeyAction::KillFocused}, {keyD, KeyAction::SpawnLauncher},
+      {keyT, KeyAction::SpawnConfiguredTerminal}, {keyF, KeyAction::ToggleFullscreen},
+      {keyE, KeyAction::exitSession}, {keyLeft, KeyAction::FocusPrevious}, {keyRight, KeyAction::FocusNext},
+      {key1, KeyAction::GotoWindow1}, {key2, KeyAction::GotoWindow2},
+      {key3, KeyAction::GotoWindow3}, {key4, KeyAction::GotoWindow4},
+      {key5, KeyAction::GotoWindow5}, {key6, KeyAction::GotoWindow6},
+      {key7, KeyAction::GotoWindow7}, {key8, KeyAction::GotoWindow8},
+      {key9, KeyAction::GotoWindow9}, {key0, KeyAction::GotoWindow10},
+      {printScreen, KeyAction::launchScreenshot}
+    };
     grabKey(XCB_MOD_MASK_4, key0);
     grabKey(XCB_MOD_MASK_4, key1);
     grabKey(XCB_MOD_MASK_4, key2);
@@ -287,19 +371,27 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_SHIFT, keyTab);
     grabKey(XCB_MOD_MASK_4, keyEnter);
     grabKey(XCB_MOD_MASK_4, keyQ);
-    grabKey(XCB_MOD_MASK_4, keyE);
+    grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_SHIFT, keyE);
     grabKey(XCB_MOD_MASK_4, keyB);
     grabKey(XCB_MOD_MASK_4, keyD);
     grabKey(XCB_MOD_MASK_4, keyT);
     grabKey(XCB_MOD_MASK_4, keyF);
     grabKey(XCB_MOD_MASK_4, keyLeft);
     grabKey(XCB_MOD_MASK_4, keyRight);
+    grabKey(XCB_MOD_MASK_4, printScreen);
 }
 
 /* event handlers */
 
 static void onMapRequest(xcb_generic_event_t *event) {
     xcb_map_request_event_t *mr = (xcb_map_request_event_t *)event;
+
+  if (isUtilityWindow(mr->window)) {
+    xcb_map_window(connection, mr->window);
+    xcb_flush(connection);
+    return;
+  }
+
     clients.push_back(mr->window);
 
     uint32_t mask = XCB_CW_EVENT_MASK;
@@ -354,68 +446,43 @@ static void onKeyPress(xcb_generic_event_t *event) {
     xcb_key_press_event_t *kp = (xcb_key_press_event_t *)event;
     uint16_t state = kp->state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2); 
     if (!(state & XCB_MOD_MASK_4)) return;
-    if (kp->detail == keyTab) {
-      std::cout << "Button Tab registered" << std::endl;
-      switchWindow(kp, state);
-    } else if (kp->detail == keyEnter) {
-      std::cout << "Button Enter registered" << std::endl;
-        if (kp->time - lastSpawnTime < 400) return;
-        lastSpawnTime = kp->time;
-        spawn("xterm -fa 'DejaVu Sans Mono' -fs 12");
-    } else if (kp->detail == keyQ) {
-      std::cout << "Button Q registered";
-      killFocused();
-    } else if (kp->detail == keyD) {
-      std::cout << "Button D registered" << std::endl;
-      if (kp->time - lastSpawnTime < 400) return;
-      lastSpawnTime = kp->time;
-      spawn("rofi -show drun");
-    } else if (kp->detail == keyT) {
-      std::cout << "Button T registered" << std::endl;
-      if (kp->time - lastSpawnTime < 400) return;
-      lastSpawnTime = kp->time;
-      spawn(terminal);
-    } else if (kp->detail == keyF) {
-      std::cout << "Button F registered" << std::endl;
-      changeFullscreen();
-    } else if (kp->detail == keyLeft) {
-      std::cout << "Left Button registered" << std::endl;
-      focusPrev(kp, state);
-    } else if (kp->detail == keyRight) {
-      std::cout << "Right Button registered" << std::endl;
-      focusNext(kp, state);
+    auto action = keyActions.find(kp->detail);
+    if (action == keyActions.end()) return;
+
+    switch (action->second) {
+        case KeyAction::SwitchWindow: switchWindow(kp, state); break;
+        case KeyAction::KillFocused: killFocused(); break;
+        case KeyAction::SpawnLauncher:
+            if (kp->time - lastSpawnTime < 400) return;
+            lastSpawnTime = kp->time;
+            spawn(applicationlauncher);
+            break;
+        case KeyAction::SpawnConfiguredTerminal:
+            if (kp->time - lastSpawnTime < 400) return;
+            lastSpawnTime = kp->time;
+            spawn(terminal);
+            break;
+        case KeyAction::exitSession: exitSession(); break;
+        case KeyAction::launchScreenshot: launchScreenshot(); break;
+        case KeyAction::launchSpecialApplication: launchSpecialApplication(); break;
+        case KeyAction::ToggleFullscreen: changeFullscreen(); break;
+        case KeyAction::FocusPrevious: focusPrev(kp, state); break;
+        case KeyAction::FocusNext: focusNext(kp, state); break;
+        case KeyAction::GotoWindow1:
+        case KeyAction::GotoWindow2:
+        case KeyAction::GotoWindow3:
+        case KeyAction::GotoWindow4:
+        case KeyAction::GotoWindow5:
+        case KeyAction::GotoWindow6:
+        case KeyAction::GotoWindow7:
+        case KeyAction::GotoWindow8:
+        case KeyAction::GotoWindow9:
+        case KeyAction::GotoWindow10:
+            gotoWindow(kp, static_cast<size_t>(action->second) - static_cast<size_t>(KeyAction::GotoWindow1) + 1);
+            break;
+        case KeyAction::SpawnTerminal:
+          break;
     }
-      else if (kp->detail == key1) {
-      std::cout << "Button 1 registered" << std::endl;
-      gotoWindow(kp, 1);
-    } else if (kp->detail == key2) {
-      std::cout << "Button 2 registered" << std::endl;
-      gotoWindow(kp, 2);
-    } else if (kp->detail == key3) {
-      std::cout << "Button 3 registered" << std::endl;
-      gotoWindow(kp, 3);
-    } else if (kp->detail == key4) {
-      std::cout << "Button 4 registered" << std::endl;
-      gotoWindow(kp, 4);
-    } else if (kp->detail == key5) {
-      std::cout << "Button 5 registered" << std::endl;
-      gotoWindow(kp, 5);
-    } else if (kp->detail == key6) {
-      std::cout << "Button 6 registered" << std::endl;
-      gotoWindow(kp, 6);
-    } else if (kp->detail == key7) {
-      std::cout << "Button 7 registered" << std::endl;
-      gotoWindow(kp, 7);
-    } else if (kp->detail == key8) {
-      std::cout << "Button 8 registered" << std::endl;
-      gotoWindow(kp, 8);
-    } else if (kp->detail == key9) {
-      std::cout << "Button 9 registered" << std::endl;
-      gotoWindow(kp, 9);
-    } else if (kp->detail == key0) {
-      std::cout << "Button 0 registered" << std::endl;
-      gotoWindow(kp, 1);
-    }     
 } 
 
 
@@ -434,6 +501,8 @@ int main() {
     const xcb_setup_t *setup = xcb_get_setup(connection);
     xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
     screen = iter.data;
+    netWmWindowType = internAtom("_NET_WM_WINDOW_TYPE");
+    netWmWindowTypeDock = internAtom("_NET_WM_WINDOW_TYPE_DOCK");
 
     /* SubstructureRedirect fails if another WM runs */
     uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
