@@ -1,3 +1,7 @@
+
+**Xiri showcase:**  
+https://github.com/user-attachments/assets/6830636b-951c-48ec-b4d4-803a1451ca66  
+
 Xiri-wm is a x11 based window manager that written in c++ and xcb. It's inspired by niri-wm and have similar mechanic that imitating scrolling.  
 
 Before using xiri, u have to remember that it was made by unexperienced developer and it may contain bugs and unoptimized code that i will make better in future.  
