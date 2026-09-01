@@ -17,8 +17,8 @@
 // variables
 
 /* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
-uint32_t customWidgth = 1280; // Change resolution what your windows will open 
-uint32_t customHeight = 720; // Also custom resolution will be applied through xrandr
+uint32_t customWidgth = 1920; // Change resolution what your windows will open 
+uint32_t customHeight = 1200; // Also custom resolution will be applied through xrandr
 uint32_t windowGap = 24;
 uint32_t windowWidgth = customWidgth - windowGap; // You can set there what you want, this will affect only windows
 uint32_t windowHeight = customHeight - windowGap; // Same as previous string
@@ -27,8 +27,9 @@ const char *terminal = "kitty"; // This terminal will be used for Mod4+t variant
 const char *wallpaper = "~/Pictures/wallpaper.jpg"; // This will be used for setting up wallpaper with feh at startup
 const char *keyboardconfig = "-layout us,ru -option 'grp:alt_shift_toggle'"; // This will be used for running stxkbmap
 const char *applicationlauncher = "rofi -show drun"; // This will be used for running application launcher
-const char *customApplication = "librewolf"; // This will be used for enter key
+const char *customApplication = "firefox"; // This will be used for enter key
 const char *screentaker = "spectacle"; // This will be used for taking screenshots 
+const char *customBar = "polybar"; // This will be used for running custom bar
 
 
 /* state */
@@ -36,12 +37,14 @@ const char *screentaker = "spectacle"; // This will be used for taking screensho
 static std::vector<xcb_window_t> clients;
 static size_t focusedIndex = 0;
 bool fullscreen = false;
+bool activeBar = false;
+bool DesktopMode = false;
 
 static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyLeft, keyRight, printScreen;
+static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyP, keyH, keyLeft, keyRight, printScreen;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 static xcb_atom_t netWmWindowType;
@@ -52,7 +55,8 @@ enum class KeyAction {
   SpawnConfiguredTerminal, ToggleFullscreen, FocusPrevious, FocusNext,
   GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
   GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
-  launchScreenshot, launchSpecialApplication, exitSession
+  launchScreenshot, launchSpecialApplication, exitSession, launchBar,
+  showDesktop
 };
 
 static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
@@ -120,10 +124,17 @@ static void spawn(const char *cmd) {
 
 static void monocleResize(xcb_window_t win) {
   if (fullscreen == false) {
-    uint32_t values[4] = {windowGap/2, windowGap/2, windowWidgth, windowHeight};
-    uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-                    XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-    xcb_configure_window (connection, win, mask, values);
+    if (activeBar == false) {
+      uint32_t values[4] = {windowGap/2, windowGap/2, windowWidgth, windowHeight};
+      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+      XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+      xcb_configure_window (connection, win, mask, values);
+    } else {
+      uint32_t values[4] = {windowGap/2, windowGap/2 + 35, windowWidgth, windowHeight - 35};
+      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+      XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+      xcb_configure_window (connection, win, mask, values);
+    }
   } else {
     uint32_t values[4] = {0, 0, customWidgth, customHeight};
     uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
@@ -184,26 +195,53 @@ static void changeFullscreen() {
 /* scrolling functions */
 
 
+static void normalizeFocusedIndex() {
+  if (clients.empty()) {
+    focusedIndex = 0;
+    return;
+  }
+  if (focusedIndex >= clients.size()) {
+    focusedIndex = clients.size() - 1;
+  }
+}
+
 static void removeClient(xcb_window_t win) {
     clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
-    if (!clients.empty()) focusClient(0);
+    normalizeFocusedIndex();
+    if (!clients.empty()) focusClient(focusedIndex);
 }
 
 
 static void checkClients() {
   if (clients.empty()) return;
-  printf("Starting to check clients.");
-  for (size_t i = clients.size() - 1; i > 0; i--) {
-    xcb_window_t win = clients[i];
-    std::cout << "Checking window number " << i << std::endl;
+
+  std::vector<xcb_window_t> validClients;
+  validClients.reserve(clients.size());
+
+  for (xcb_window_t win : clients) {
+    if (isUtilityWindow(win)) {
+      std::cout << "Utility client detected, removing it from the client list" << std::endl;
+      continue;
+    }
+
     auto cookie = xcb_get_window_attributes(connection, win);
     auto reply = xcb_get_window_attributes_reply(connection, cookie, nullptr);
     if (reply == nullptr) {
-      printf("Client is dead, clearing up it.");
-      removeClient(win);
-    } else {
-      std::cout << "Client is alive, doing nothing" << std::endl;
+      std::cout << "Client is dead, clearing it up" << std::endl;
+      continue;
     }
+    free(reply);
+    validClients.push_back(win);
+  }
+
+  if (validClients.size() != clients.size()) {
+    clients.swap(validClients);
+    normalizeFocusedIndex();
+    if (!clients.empty()) {
+      focusClient(focusedIndex);
+    }
+  } else {
+    normalizeFocusedIndex();
   }
 }
 
@@ -256,6 +294,7 @@ static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
 
 
 static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber) {
+  checkClients();
   if (windownumber == 0 || windownumber > clients.size()) return;
   if (kp->time - lastSwitchTime < 150) return;
     lastSwitchTime = kp->time;
@@ -282,14 +321,31 @@ static void setupWallpaper(const char *wallpaperpath) {
   spawn(command.c_str());
 }
 
+static void launchBar() {
+  if (activeBar == false) {
+    spawn(customBar);
+    activeBar = true;
+  } else {
+    std::string command = std::string("killall ") + customBar;
+    spawn(command.c_str());
+    activeBar = false;
+  }
+  if (clients.empty()) return;
+  monocleResize(clients[focusedIndex]);
+}
+
 static void setxkbmapconfig(const char *variant) {
   std::string command = std::string("setxkbmap ") + variant;
   spawn(command.c_str());
 }
 
 static void killFocused() {
+    checkClients();
     if (clients.empty()) return;
-  xcb_window_t win = clients[focusedIndex];
+    if (focusedIndex >= clients.size()) {
+      focusedIndex = clients.size() - 1;
+    }
+    xcb_window_t win = clients[focusedIndex];
     xcb_kill_client(connection, clients[focusedIndex]);
     xcb_flush(connection);
     removeClient(win);
@@ -301,6 +357,20 @@ static void launchScreenshot() {
 
 static void launchSpecialApplication() {
   spawn(customApplication);
+}
+
+static void showDesktop() {
+  if (DesktopMode == false) {
+    for (auto w : clients) {
+      xcb_unmap_window(connection, w);
+    }
+    DesktopMode = true;
+  } else {
+    for (auto w : clients) {
+      xcb_map_window(connection, w);
+    }
+    DesktopMode = false;
+  }
 }
 
 static void exitSession() {
@@ -342,6 +412,8 @@ static void grabKeys() {
     keyD     = firstKeycode(0x0044); /* XK_d */
     keyT     = firstKeycode(0x0074); /* XK_t */
     keyF     = firstKeycode(0x0046); /* XK_f */
+    keyP     = firstKeycode(0x0070); /* XK_p */
+    keyH     = firstKeycode(0x0068); /* XK_h */
     keyLeft  = firstKeycode(0xff51); 
     keyRight = firstKeycode(0xff53);
     printScreen = firstKeycode(0xff61); /* XK_Print */
@@ -355,7 +427,8 @@ static void grabKeys() {
       {key5, KeyAction::GotoWindow5}, {key6, KeyAction::GotoWindow6},
       {key7, KeyAction::GotoWindow7}, {key8, KeyAction::GotoWindow8},
       {key9, KeyAction::GotoWindow9}, {key0, KeyAction::GotoWindow10},
-      {printScreen, KeyAction::launchScreenshot}
+      {printScreen, KeyAction::launchScreenshot}, {keyP, KeyAction::launchBar},
+      {keyH, KeyAction::showDesktop}
     };
     grabKey(XCB_MOD_MASK_4, key0);
     grabKey(XCB_MOD_MASK_4, key1);
@@ -376,6 +449,8 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4, keyD);
     grabKey(XCB_MOD_MASK_4, keyT);
     grabKey(XCB_MOD_MASK_4, keyF);
+    grabKey(XCB_MOD_MASK_4, keyP);
+    grabKey(XCB_MOD_MASK_4, keyH);
     grabKey(XCB_MOD_MASK_4, keyLeft);
     grabKey(XCB_MOD_MASK_4, keyRight);
     grabKey(XCB_MOD_MASK_4, printScreen);
@@ -462,12 +537,14 @@ static void onKeyPress(xcb_generic_event_t *event) {
             lastSpawnTime = kp->time;
             spawn(terminal);
             break;
+        case KeyAction::launchBar: launchBar(); break;
         case KeyAction::exitSession: exitSession(); break;
         case KeyAction::launchScreenshot: launchScreenshot(); break;
         case KeyAction::launchSpecialApplication: launchSpecialApplication(); break;
         case KeyAction::ToggleFullscreen: changeFullscreen(); break;
         case KeyAction::FocusPrevious: focusPrev(kp, state); break;
         case KeyAction::FocusNext: focusNext(kp, state); break;
+        case KeyAction::showDesktop: showDesktop(); break;
         case KeyAction::GotoWindow1:
         case KeyAction::GotoWindow2:
         case KeyAction::GotoWindow3:
@@ -521,20 +598,18 @@ int main() {
     grabKeys();
     xcb_flush(connection);
     
-    std::cout << "minimal monocle wm started (Mod4+tab Switch, Mod4+Enter xterm, Mod4+Q kill, Mod4+D application launcher, Mod4+T terminal, Mod4+LeftKey scroll left, Mod4+RightKey scroll right, Mod4+(0-9) gotoWindow)\n";
-    //Autostart functions //
+    // Autostart Functions
     changeResolution(monitor, customWidgth, customHeight);
     setupWallpaper(wallpaper);
     setxkbmapconfig(keyboardconfig);
-    // spawn("setxkbmap -layout us,ru -option 'grp:alt_shift_toggle'");
-    // events receiving and sending it back
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
         switch (event->response_type & ~0x80) {
             case XCB_MAP_REQUEST:       onMapRequest(event);       break;
             case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
-        //    case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
-        //    case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break;
+        /*  case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
+            case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break; -- This 2 strokes are unrecommended to uncomment, because
+            they can cause some bugs with focused index */
             case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
             case XCB_KEY_PRESS:         onKeyPress(event);         break;
             default: break;
