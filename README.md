@@ -1,4 +1,7 @@
-Warning!!!
+Xiri showcase:  
+https://github.com/user-attachments/assets/bb6f8aef-57a9-4cf4-a95c-8fadf568db89
+
+Warning!!!  
 Xiri is 80% coded by human and 20% coded by ai (config file + some bug fixes was done by ai) so if you avoid to use ai coded stuff, js know that even i use ai in development.  
 
 
