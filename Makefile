@@ -88,6 +88,7 @@ help:
 	@echo "  make check-deps - Check if dependencies are installed"
 	@echo "  make help       - Show this help"
 	@echo "  make sddm       - Add .desktop file to run xiri session from sddm"``
+	@echo "  make config     - Creates config folder at ~/.config/xiri and copies the default config file there"
 
 
 # sddm
@@ -97,5 +98,12 @@ sddm:
 	@mv  xiri.desktop /usr/share/xsessions/xiri.desktop
 	@echo "Done! Now type sudo make install, to add xiri binary to /usr/local/bin and you will be able to boot into xiri."
 
+
+config:
+	@echo "Creating config folder at ~/.config/"
+	@mkdir ~/.config/xiri
+	@echo "Done! Now copying the config file to the config folder..."
+	@cp ~/xiri/config.ini ~/.config/xiri/config.ini
+	@echo "Done! Now you can edit the config file and don't forget to reinstall xiri to apply changes." 
 # phony targets
 .PHONY: all clean install uninstall run xephyr check-deps help
