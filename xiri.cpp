@@ -14,7 +14,12 @@
 #include <unordered_map>
 #include <string>
 #include <csignal>
-// variables
+#include <fstream>
+#include <sstream>
+#include <cctype>
+
+
+
 
 /* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
 uint32_t customWidgth = 1920; // Change resolution what your windows will open 
@@ -22,14 +27,97 @@ uint32_t customHeight = 1200; // Also custom resolution will be applied through 
 uint32_t windowGap = 24;
 uint32_t windowWidgth = customWidgth - windowGap; // You can set there what you want, this will affect only windows
 uint32_t windowHeight = customHeight - windowGap; // Same as previous string
-const char *monitor = "eDP-1"; // Change to your monitor name if eDP-1 does not suits you
-const char *terminal = "kitty"; // This terminal will be used for Mod4+t variant
-const char *wallpaper = "~/Pictures/wallpaper.jpg"; // This will be used for setting up wallpaper with feh at startup
-const char *keyboardconfig = "-layout us,ru -option 'grp:alt_shift_toggle'"; // This will be used for running stxkbmap
-const char *applicationlauncher = "rofi -show drun"; // This will be used for running application launcher
-const char *customApplication = "firefox"; // This will be used for enter key
-const char *screentaker = "spectacle"; // This will be used for taking screenshots 
-const char *customBar = "polybar"; // This will be used for running custom bar
+std::string monitor = "eDP-1"; // Change to your monitor name if eDP-1 does not suits you
+std::string terminal = "kitty"; // This terminal will be used for Mod4+t variant
+std::string wallpaperUtility = "feh"; // This will be used for setting up wallpaper
+std::string wallpaper = "~/Pictures/wallpaper.jpg"; // This will be used for setting up wallpaper with feh at startup
+std::string keyboardconfig = "-layout us,ru -option 'grp:alt_shift_toggle'"; // This will be used for running stxkbmap
+std::string applicationlauncher = "rofi -show drun"; // This will be used for running application launcher
+std::string customApplication = "firefox"; // This will be used for enter key
+std::string screentaker = "spectacle"; // This will be used for taking screenshots
+std::string customBar = "polybar"; // This will be used for running custom bar
+
+/* config reader function */
+
+static std::string trim(const std::string &value) {
+  const auto first = value.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) return "";
+  const auto last = value.find_last_not_of(" \t\r\n");
+  return value.substr(first, last - first + 1);
+}
+
+static std::string unquote(const std::string &value) {
+  if (value.size() >= 2 &&
+      ((value.front() == '"' && value.back() == '"') ||
+       (value.front() == '\'' && value.back() == '\''))) {
+    return value.substr(1, value.size() - 2);
+  }
+  return value;
+}
+
+static void readConfigFile() {
+  const char *home = std::getenv("HOME");
+  std::string configPath = home ? std::string(home) + "/.config/xiri/config.ini" : "config.ini";
+  std::ifstream configFile(configPath);
+  if (!configFile.is_open() && configPath != "config.ini") {
+    configPath = "config.ini";
+    configFile.open(configPath);
+  }
+  if (!configFile.is_open()) {
+    std::cerr << "Failed to open config file: " << configPath << std::endl;
+    std::cout << "Using default configuration values." << std::endl;
+    return;
+  }
+
+  std::string section;
+  std::string line;
+  while (std::getline(configFile, line)) {
+    line = trim(line);
+    if (line.empty() || line.front() == '#' || line.front() == ';') continue;
+    if (line.front() == '[' && line.back() == ']') {
+      section = trim(line.substr(1, line.size() - 2));
+      continue;
+    }
+
+    const auto separator = line.find('=');
+    if (separator == std::string::npos) continue;
+    const std::string key = trim(line.substr(0, separator));
+    const std::string value = unquote(trim(line.substr(separator + 1)));
+    try {
+      if (section == "General" && key == "windowgap") {
+        windowGap = std::stoul(value);
+      } else if (section == "Applications" && key == "terminal") {
+        terminal = value;
+      } else if (section == "Applications" && key == "wallpaperUtility") {
+        wallpaperUtility = value;
+      } else if (section == "Applications" && key == "wallpaper") {
+        wallpaper = value;
+      } else if (section == "Applications" && key == "keyboardconfig") {
+        keyboardconfig = value;
+      } else if (section == "Applications" && key == "applicationlauncher") {
+        applicationlauncher = value;
+      } else if (section == "Applications" && key == "customApplication") {
+        customApplication = value;
+      } else if (section == "Applications" && key == "screentaker") {
+        screentaker = value;
+      } else if (section == "Applications" && key == "customBar") {
+        customBar = value;
+      } else if (section == "Display" && key == "monitor") {
+        monitor = value;
+      } else if (section == "Display" && key == "customWidgth") {
+        customWidgth = std::stoul(value);
+      } else if (section == "Display" && key == "customHeight") {
+        customHeight = std::stoul(value);
+      }
+    } catch (const std::exception &) {
+      std::cerr << "Invalid value for [" << section << "] " << key << std::endl;
+    }
+  }
+
+  windowWidgth = customWidgth - windowGap;
+  windowHeight = customHeight - windowGap;
+}
+
 
 
 /* state */
@@ -273,9 +361,8 @@ static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) {
       focusClient(clients.size() - 1);
     }
   }
-   std::cout << "Window scrolled, current window is:" << focusedIndex << std::endl;
-   std::cout << "Current client size is:" << clients.size() << std::endl;
-
+  std::cout << "Window scrolled, current window is:" << focusedIndex << std::endl;
+  std::cout << "Current client size is:" << clients.size() << std::endl;
 }
 
 
@@ -317,13 +404,23 @@ static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_
 }
 
 static void setupWallpaper(const char *wallpaperpath) {
-  std::string command = std::string("feh --bg-scale ") + wallpaperpath;
-  spawn(command.c_str());
+  if (wallpaperUtility == "feh") {
+    std::string command = std::string("feh --bg-scale ") + wallpaperpath;
+    spawn(command.c_str());
+  } else if (wallpaperUtility == "xwallpaper") {
+    std::string command = std::string("xwallpaper --zoom ") + wallpaperpath;
+    spawn(command.c_str());
+  } else if (wallpaperUtility == "nitrogen") {
+    std::string command = std::string("nitrogen --set-zoom-fill ") + wallpaperpath;
+    spawn(command.c_str());
+  } else {
+    return;
+  }
 }
 
 static void launchBar() {
   if (activeBar == false) {
-    spawn(customBar);
+    spawn(customBar.c_str());
     activeBar = true;
   } else {
     std::string command = std::string("killall ") + customBar;
@@ -352,11 +449,11 @@ static void killFocused() {
 }
 
 static void launchScreenshot() {
-  spawn(screentaker);
+  spawn(screentaker.c_str());
 }
 
 static void launchSpecialApplication() {
-  spawn(customApplication);
+  spawn(customApplication.c_str());
 }
 
 static void showDesktop() {
@@ -530,12 +627,12 @@ static void onKeyPress(xcb_generic_event_t *event) {
         case KeyAction::SpawnLauncher:
             if (kp->time - lastSpawnTime < 400) return;
             lastSpawnTime = kp->time;
-            spawn(applicationlauncher);
+            spawn(applicationlauncher.c_str());
             break;
         case KeyAction::SpawnConfiguredTerminal:
             if (kp->time - lastSpawnTime < 400) return;
             lastSpawnTime = kp->time;
-            spawn(terminal);
+            spawn(terminal.c_str());
             break;
         case KeyAction::launchBar: launchBar(); break;
         case KeyAction::exitSession: exitSession(); break;
@@ -568,6 +665,7 @@ static void onKeyPress(xcb_generic_event_t *event) {
 
 int main() {
     signal(SIGCHLD, SIG_IGN); /* auto-reap children */
+  readConfigFile();
 
     connection = xcb_connect(NULL, NULL);
     if (xcb_connection_has_error(connection)) {
@@ -599,9 +697,9 @@ int main() {
     xcb_flush(connection);
     
     // Autostart Functions
-    changeResolution(monitor, customWidgth, customHeight);
-    setupWallpaper(wallpaper);
-    setxkbmapconfig(keyboardconfig);
+    changeResolution(monitor.c_str(), customWidgth, customHeight);
+    setupWallpaper(wallpaper.c_str());
+    setxkbmapconfig(keyboardconfig.c_str());
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
         switch (event->response_type & ~0x80) {
