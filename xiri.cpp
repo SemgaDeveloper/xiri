@@ -695,6 +695,7 @@ int main() {
     keysyms = xcb_key_symbols_alloc(connection);
     grabKeys();
     xcb_flush(connection);
+    readConfigFile();
     
     // Autostart Functions
     changeResolution(monitor.c_str(), customWidgth, customHeight);
