@@ -19,8 +19,6 @@
 #include <cctype>
 
 
-
-
 /* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
 uint32_t customWidgth = 1920; // Change resolution what your windows will open 
 uint32_t customHeight = 1200; // Also custom resolution will be applied through xrandr
@@ -36,6 +34,148 @@ std::string applicationlauncher = "rofi -show drun"; // This will be used for ru
 std::string customApplication = "firefox"; // This will be used for enter key
 std::string screentaker = "spectacle"; // This will be used for taking screenshots
 std::string customBar = "polybar"; // This will be used for running custom bar
+
+
+
+/* state */
+
+static std::vector<xcb_window_t> clients;
+static size_t focusedIndex = 0;
+bool fullscreen = false;
+bool activeBar = false;
+bool DesktopMode = false;
+
+static xcb_connection_t   *connection;
+static xcb_screen_t       *screen;
+static xcb_key_symbols_t  *keysyms;
+
+static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyP, keyH, keyLeft, keyRight, printScreen;
+static xcb_timestamp_t lastSpawnTime = 0;
+static xcb_timestamp_t lastSwitchTime = 0;
+static xcb_atom_t netWmWindowType;
+static xcb_atom_t netWmWindowTypeDock;
+
+enum class KeyAction {
+  SwitchWindow, SpawnTerminal, KillFocused, SpawnLauncher,
+  SpawnConfiguredTerminal, ToggleFullscreen, FocusPrevious, FocusNext,
+  GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
+  GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
+  launchScreenshot, launchSpecialApplication, exitSession, launchBar,
+  showDesktop
+};
+
+static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
+
+/* lock modifiers that must be grabbed in every combination, or grabs
+   silently fail to match whenever numlock/capslock is on */
+static const uint16_t lockMasks[4] = {
+    0,
+    XCB_MOD_MASK_LOCK,                    /* CapsLock */
+    XCB_MOD_MASK_2,                       /* NumLock (common mapping) */
+    XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2
+};
+
+
+
+/* functions's skeletons */
+
+static std::string trim(const std::string &value);
+static std::string unquote(const std::string &value);
+static void readConfigFile();
+static xcb_atom_t internAtom(const char *name);
+static bool isUtilityWindow(xcb_window_t window);
+static void spawn(const char *cmd);
+static void monocleResize(xcb_window_t win);
+static void applyMonocleAll();
+static void focusClient(size_t idx);
+static void refocusCleint();
+static void changeFullscreen();
+static void normalizeFocusedIndex();
+static void removeClient(xcb_window_t win);
+static void checkClients();
+static void focusNext(xcb_key_press_event_t *kp, uint16_t state);
+static void focusPrev(xcb_key_press_event_t *kp, uint16_t state);
+static void switchWindow(xcb_key_press_event_t *kp, uint16_t state);
+static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber);
+static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height);
+static void setupWallpaper(const char *wallpaperpath);
+static void launchBar();
+static void setxkbmapconfig(const char *variant);
+static void killFocused();
+static void launchScreenshot();
+static void launchSpecialApplication();
+static void showDesktop();
+static void exitSession();
+static xcb_keycode_t firstKeycode(xcb_keysym_t sym);
+static void grabKey(uint16_t modifiers, xcb_keycode_t code);
+static void grabKeys();
+static void onMapRequest(xcb_generic_event_t *event);
+static void onConfigureRequest(xcb_generic_event_t *event);
+static void onEnterNotify(xcb_generic_event_t *event);
+static void onKeyPress(xcb_generic_event_t *event);
+
+
+
+/* main function */
+
+int main() {
+    signal(SIGCHLD, SIG_IGN); /* auto-reap children */
+  readConfigFile();
+
+    connection = xcb_connect(NULL, NULL);
+    if (xcb_connection_has_error(connection)) {
+        fprintf(stderr, "cannot connect to X server\n");
+        return 1;
+    }
+
+    const xcb_setup_t *setup = xcb_get_setup(connection);
+    xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
+    screen = iter.data;
+    netWmWindowType = internAtom("_NET_WM_WINDOW_TYPE");
+    netWmWindowTypeDock = internAtom("_NET_WM_WINDOW_TYPE_DOCK");
+
+    /* SubstructureRedirect fails if another WM runs */
+    uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
+                         XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
+    xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(
+        connection, screen->root, XCB_CW_EVENT_MASK, &rootMask);
+    xcb_generic_error_t *err = xcb_request_check(connection, cookie);
+    if (err) {
+        fprintf(stderr, "another WM is already running\n");
+        free(err);
+        xcb_disconnect(connection);
+        return 1;
+    }
+
+    keysyms = xcb_key_symbols_alloc(connection);
+    grabKeys();
+    xcb_flush(connection);
+    readConfigFile();
+    
+    // Autostart Functions
+    changeResolution(monitor.c_str(), customWidgth, customHeight);
+    setupWallpaper(wallpaper.c_str());
+    setxkbmapconfig(keyboardconfig.c_str());
+    xcb_generic_event_t *event;
+    while ((event = xcb_wait_for_event(connection))) {
+        switch (event->response_type & ~0x80) {
+            case XCB_MAP_REQUEST:       onMapRequest(event);       break;
+            case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
+        /*  case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
+            case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break; -- This 2 strokes are unrecommended to uncomment, because
+            they can cause some bugs with focused index */
+            case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
+            case XCB_KEY_PRESS:         onKeyPress(event);         break;
+            default: break;
+        }
+        free(event);
+    }
+
+    xcb_key_symbols_free(keysyms);
+    xcb_disconnect(connection);
+    return 0;
+}
+
 
 /* config reader function */
 
@@ -118,45 +258,6 @@ static void readConfigFile() {
   windowHeight = customHeight - windowGap;
 }
 
-
-
-/* state */
-
-static std::vector<xcb_window_t> clients;
-static size_t focusedIndex = 0;
-bool fullscreen = false;
-bool activeBar = false;
-bool DesktopMode = false;
-
-static xcb_connection_t   *connection;
-static xcb_screen_t       *screen;
-static xcb_key_symbols_t  *keysyms;
-
-static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyP, keyH, keyLeft, keyRight, printScreen;
-static xcb_timestamp_t lastSpawnTime = 0;
-static xcb_timestamp_t lastSwitchTime = 0;
-static xcb_atom_t netWmWindowType;
-static xcb_atom_t netWmWindowTypeDock;
-
-enum class KeyAction {
-  SwitchWindow, SpawnTerminal, KillFocused, SpawnLauncher,
-  SpawnConfiguredTerminal, ToggleFullscreen, FocusPrevious, FocusNext,
-  GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
-  GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
-  launchScreenshot, launchSpecialApplication, exitSession, launchBar,
-  showDesktop
-};
-
-static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
-
-/* lock modifiers that must be grabbed in every combination, or grabs
-   silently fail to match whenever numlock/capslock is on */
-static const uint16_t lockMasks[4] = {
-    0,
-    XCB_MOD_MASK_LOCK,                    /* CapsLock */
-    XCB_MOD_MASK_2,                       /* NumLock (common mapping) */
-    XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2
-};
 
 
 
@@ -660,63 +761,3 @@ static void onKeyPress(xcb_generic_event_t *event) {
 } 
 
 
-
-/* main */
-
-int main() {
-    signal(SIGCHLD, SIG_IGN); /* auto-reap children */
-  readConfigFile();
-
-    connection = xcb_connect(NULL, NULL);
-    if (xcb_connection_has_error(connection)) {
-        fprintf(stderr, "cannot connect to X server\n");
-        return 1;
-    }
-
-    const xcb_setup_t *setup = xcb_get_setup(connection);
-    xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-    screen = iter.data;
-    netWmWindowType = internAtom("_NET_WM_WINDOW_TYPE");
-    netWmWindowTypeDock = internAtom("_NET_WM_WINDOW_TYPE_DOCK");
-
-    /* SubstructureRedirect fails if another WM runs */
-    uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
-                         XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
-    xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(
-        connection, screen->root, XCB_CW_EVENT_MASK, &rootMask);
-    xcb_generic_error_t *err = xcb_request_check(connection, cookie);
-    if (err) {
-        fprintf(stderr, "another WM is already running\n");
-        free(err);
-        xcb_disconnect(connection);
-        return 1;
-    }
-
-    keysyms = xcb_key_symbols_alloc(connection);
-    grabKeys();
-    xcb_flush(connection);
-    readConfigFile();
-    
-    // Autostart Functions
-    changeResolution(monitor.c_str(), customWidgth, customHeight);
-    setupWallpaper(wallpaper.c_str());
-    setxkbmapconfig(keyboardconfig.c_str());
-    xcb_generic_event_t *event;
-    while ((event = xcb_wait_for_event(connection))) {
-        switch (event->response_type & ~0x80) {
-            case XCB_MAP_REQUEST:       onMapRequest(event);       break;
-            case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
-        /*  case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
-            case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break; -- This 2 strokes are unrecommended to uncomment, because
-            they can cause some bugs with focused index */
-            case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
-            case XCB_KEY_PRESS:         onKeyPress(event);         break;
-            default: break;
-        }
-        free(event);
-    }
-
-    xcb_key_symbols_free(keysyms);
-    xcb_disconnect(connection);
-    return 0;
-}
