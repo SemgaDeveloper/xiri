@@ -49,7 +49,7 @@ static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
 static xcb_key_symbols_t  *keysyms;
 
-static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyTab, keyEnter, keyQ, keyE, keyB, keyD, keyT, keyF, keyP, keyH, keyLeft, keyRight, printScreen;
+static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyA, keyB, keyC, keyD, keyE, keyF, keyG, keyH, keyI, keyJ, keyK, keyL, keyM, keyN, keyO, keyP, keyQ, keyR, keyS, keyT, keyU, keyV, keyW, keyX, keyY, keyZ, keyTab, keyEnter, keyLeft, keyRight, printScreen;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
 static xcb_atom_t netWmWindowType;
@@ -604,14 +604,32 @@ static void grabKeys() {
     key0     = firstKeycode(0x0030); /* XK_0 */
     keyTab   = firstKeycode(0xff09); /* XK_Tab */
     keyEnter = firstKeycode(0xff0d); /* XK_Return */
-    keyQ     = firstKeycode(0x0071); /* XK_q */
-    keyE     = firstKeycode(0x0065); /* XK_e */
+    keyA     = firstKeycode(0x0061); /* XK_a */
     keyB     = firstKeycode(0x0062); /* XK_b */
-    keyD     = firstKeycode(0x0044); /* XK_d */
-    keyT     = firstKeycode(0x0074); /* XK_t */
-    keyF     = firstKeycode(0x0046); /* XK_f */
-    keyP     = firstKeycode(0x0070); /* XK_p */
+    keyC     = firstKeycode(0x0063); /* XK_c */
+    keyD     = firstKeycode(0x0064); /* XK_d */
+    keyE     = firstKeycode(0x0065); /* XK_e */
+    keyF     = firstKeycode(0x0066); /* XK_f */
+    keyG     = firstKeycode(0x0067); /* XK_g */
     keyH     = firstKeycode(0x0068); /* XK_h */
+    keyI     = firstKeycode(0x0069); /* XK_i */
+    keyJ     = firstKeycode(0x006a); /* XK_j */
+    keyK     = firstKeycode(0x006b); /* XK_k */
+    keyL     = firstKeycode(0x006c); /* XK_l */
+    keyM     = firstKeycode(0x006d); /* XK_m */
+    keyN     = firstKeycode(0x006e); /* XK_n */
+    keyO     = firstKeycode(0x006f); /* XK_o */
+    keyP     = firstKeycode(0x0070); /* XK_p */
+    keyQ     = firstKeycode(0x0071); /* XK_q */
+    keyR     = firstKeycode(0x0072); /* XK_r */
+    keyS     = firstKeycode(0x0073); /* XK_s */
+    keyT     = firstKeycode(0x0074); /* XK_t */
+    keyU     = firstKeycode(0x0075); /* XK_u */
+    keyV     = firstKeycode(0x0076); /* XK_v */
+    keyW     = firstKeycode(0x0077); /* XK_w */
+    keyX     = firstKeycode(0x0078); /* XK_x */
+    keyY     = firstKeycode(0x0079); /* XK_y */
+    keyZ     = firstKeycode(0x007a); /* XK_z */
     keyLeft  = firstKeycode(0xff51); 
     keyRight = firstKeycode(0xff53);
     printScreen = firstKeycode(0xff61); /* XK_Print */
