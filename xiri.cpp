@@ -61,7 +61,7 @@ enum class KeyAction {
   GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
   GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
   launchScreenshot, launchSpecialApplication, exitSession, launchBar,
-  showDesktop
+  showDesktop, swapWindowBack, swapWindowNext
 };
 
 static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
@@ -102,6 +102,8 @@ static void setupWallpaper(const char *wallpaperpath);
 static void launchBar();
 static void setxkbmapconfig(const char *variant);
 static void killFocused();
+static void swapWindowBack(xcb_key_press_event_t *kp, uint16_t state);
+static void swapWindowNext(xcb_key_press_event_t *kp, uint16_t state);
 static void launchScreenshot();
 static void launchSpecialApplication();
 static void showDesktop();
@@ -498,6 +500,31 @@ static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber) {
   }
 }
 
+static void swapWindowBack(xcb_key_press_event_t *kp, uint16_t state) {
+  (void)state;
+  checkClients();
+  if (clients.size() < 2 || kp->time - lastSwitchTime < 150) return;
+  lastSwitchTime = kp->time;
+
+  const size_t otherIndex =
+      focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1;
+  std::swap(clients[focusedIndex], clients[otherIndex]);
+  focusedIndex = otherIndex;
+  focusClient(focusedIndex);
+}
+
+static void swapWindowNext(xcb_key_press_event_t *kp, uint16_t state) {
+  (void)state;
+  checkClients();
+  if (clients.size() < 2 || kp->time - lastSwitchTime < 150) return;
+  lastSwitchTime = kp->time;
+
+  const size_t otherIndex = (focusedIndex + 1) % clients.size();
+  std::swap(clients[focusedIndex], clients[otherIndex]);
+  focusedIndex = otherIndex;
+  focusClient(focusedIndex);
+}
+
 static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height) {
   std::string command = std::string("xrandr --output ") + monitorChoice + std::string(" --mode ") + std::to_string(widgth) + std::string("x") + std::to_string(height);
   std::cout << command << std::endl;
@@ -644,7 +671,7 @@ static void grabKeys() {
       {key7, KeyAction::GotoWindow7}, {key8, KeyAction::GotoWindow8},
       {key9, KeyAction::GotoWindow9}, {key0, KeyAction::GotoWindow10},
       {printScreen, KeyAction::launchScreenshot}, {keyP, KeyAction::launchBar},
-      {keyH, KeyAction::showDesktop}
+      {keyH, KeyAction::showDesktop}, {keyJ, KeyAction::swapWindowBack}, {keyK, KeyAction::swapWindowNext}
     };
     grabKey(XCB_MOD_MASK_4, key0);
     grabKey(XCB_MOD_MASK_4, key1);
@@ -661,7 +688,8 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4, keyEnter);
     grabKey(XCB_MOD_MASK_4, keyQ);
     grabKey(XCB_MOD_MASK_4 | XCB_MOD_MASK_SHIFT, keyE);
-    grabKey(XCB_MOD_MASK_4, keyB);
+    grabKey(XCB_MOD_MASK_4, keyJ);
+    grabKey(XCB_MOD_MASK_4, keyK);
     grabKey(XCB_MOD_MASK_4, keyD);
     grabKey(XCB_MOD_MASK_4, keyT);
     grabKey(XCB_MOD_MASK_4, keyF);
@@ -761,6 +789,16 @@ static void onKeyPress(xcb_generic_event_t *event) {
         case KeyAction::FocusPrevious: focusPrev(kp, state); break;
         case KeyAction::FocusNext: focusNext(kp, state); break;
         case KeyAction::showDesktop: showDesktop(); break;
+        case KeyAction::swapWindowBack:
+            if (state & XCB_MOD_MASK_SHIFT) {
+                swapWindowNext(kp, state);
+            } else {
+                swapWindowBack(kp, state);
+            }
+            break;
+        case KeyAction::swapWindowNext:
+            swapWindowNext(kp, state);
+            break;
         case KeyAction::GotoWindow1:
         case KeyAction::GotoWindow2:
         case KeyAction::GotoWindow3:
@@ -777,5 +815,3 @@ static void onKeyPress(xcb_generic_event_t *event) {
           break;
     }
 } 
-
-
