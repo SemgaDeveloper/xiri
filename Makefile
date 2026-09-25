@@ -94,11 +94,22 @@ help:
 # sddm
 sddm:
 	@echo "Adding xiri to sddm as option... (super user required)"
+	@mkdir /usr/share/xsessions
 	@touch /usr/share/xsessions/xiri.desktop
 	@mv  xiri.desktop /usr/share/xsessions/xiri.desktop
 	@echo "Done! Now type sudo make install, to add xiri binary to /usr/local/bin and you will be able to boot into xiri."
 
+# full install
+full-install:
+	@echo "Starting full xiri install... (super user required)"
+	install -d $(DESTDIR)/usr/local/bin
+	install -m 755 $(TARGET) $(DESTDIR)/usr/local/bin/$(TARGET)
+	@mkdir /usr/share/xsessions
+	@touch /usr/share/xsessions/xiri.desktop
+	@cp xiri.desktop /usr/share/xsessions/xiri.desktop
+	@echo "Done! Now you can enter sddm and start to use xiri."
 
+# config
 config:
 	@echo "Creating config folder at ~/.config/"
 	@mkdir ~/.config/xiri

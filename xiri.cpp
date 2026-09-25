@@ -19,6 +19,7 @@
 #include <cctype>
 
 
+
 /* Test config values, befoe i made special file for configurating your xiri, you can configure it there */
 uint32_t customWidgth = 1920; // Change resolution what your windows will open 
 uint32_t customHeight = 1200; // Also custom resolution will be applied through xrandr
@@ -39,11 +40,16 @@ std::string customBar = "polybar"; // This will be used for running custom bar
 
 /* state */
 
+
+uint32_t desktopsCount = 4;
+uint32_t currentDesktop = 0; 
 static std::vector<xcb_window_t> clients;
 static size_t focusedIndex = 0;
+static size_t focusedWorkspace = 0;
 bool fullscreen = false;
 bool activeBar = false;
 bool DesktopMode = false;
+
 
 static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
@@ -55,13 +61,17 @@ static xcb_timestamp_t lastSwitchTime = 0;
 static xcb_atom_t netWmWindowType;
 static xcb_atom_t netWmWindowTypeDock;
 
+// Desktops atom_t setup
+static xcb_atom_t atom_number_of_desktops;
+static xcb_atom_t atom_current_desktop;
+
 enum class KeyAction {
   SwitchWindow, SpawnTerminal, KillFocused, SpawnLauncher,
   SpawnConfiguredTerminal, ToggleFullscreen, FocusPrevious, FocusNext,
   GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
   GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
   launchScreenshot, launchSpecialApplication, exitSession, launchBar,
-  showDesktop, swapWindowBack, swapWindowNext
+  showDesktop, swapWindowBack, swapWindowNext, FocusPreviousDesktop, FocusNextDesktop
 };
 
 static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
@@ -265,7 +275,9 @@ static void readConfigFile() {
 
 /* helpers */
 
-static xcb_atom_t internAtom(const char *name) {
+
+static xcb_atom_t 
+internAtom(const char *name) {
   xcb_intern_atom_cookie_t cookie = xcb_intern_atom(connection, 0, strlen(name), name);
   xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(connection, cookie, nullptr);
   if (!reply) return XCB_ATOM_NONE;
@@ -273,6 +285,20 @@ static xcb_atom_t internAtom(const char *name) {
   free(reply);
   return atom;
 }
+
+/*
+static xcb_atom_t intern_atom(xcb_connection_t *con, const char *name) {
+  xcb_intern_atom_cookie_t cookie = 
+    xcb_intern_atom(con, 0, strlen(name), name);
+  xcb_intern_atom_reply_t *reply =
+    xcb_intern_atom_reply(con, cookie, NULL);
+  if (!reply)
+    return XCB_ATOM_NONE;
+
+  xcb_atom_t atom = reply->atom;
+  free(reply);
+  return atom;
+} */
 
 static bool isUtilityWindow(xcb_window_t window) {
   if (netWmWindowType != XCB_ATOM_NONE && netWmWindowTypeDock != XCB_ATOM_NONE) {
@@ -525,6 +551,26 @@ static void swapWindowNext(xcb_key_press_event_t *kp, uint16_t state) {
   focusClient(focusedIndex);
 }
 
+static void FocusPreviousDesktop(xcb_key_press_event_t *kp, uint16_t state) {
+   if (currentDesktop == 0) {
+     currentDesktop = desktopsCount;
+   } else {
+     currentDesktop = currentDesktop - 1;
+   }
+  std::cout << "Current Desktop is:" << currentDesktop << std::endl;
+}
+
+static void FocusNextDesktop(xcb_key_press_event_t *kp, uint16_t state) {
+  if (currentDesktop > desktopsCount) {
+    currentDesktop = 0;
+  } else {
+    currentDesktop = currentDesktop + 1;
+  }
+  std::cout << "current Desktop is:" << currentDesktop << std::endl;
+}
+
+// Additional functions
+
 static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height) {
   std::string command = std::string("xrandr --output ") + monitorChoice + std::string(" --mode ") + std::to_string(widgth) + std::string("x") + std::to_string(height);
   std::cout << command << std::endl;
@@ -671,7 +717,8 @@ static void grabKeys() {
       {key7, KeyAction::GotoWindow7}, {key8, KeyAction::GotoWindow8},
       {key9, KeyAction::GotoWindow9}, {key0, KeyAction::GotoWindow10},
       {printScreen, KeyAction::launchScreenshot}, {keyP, KeyAction::launchBar},
-      {keyH, KeyAction::showDesktop}, {keyJ, KeyAction::swapWindowBack}, {keyK, KeyAction::swapWindowNext}
+      {keyH, KeyAction::showDesktop}, {keyJ, KeyAction::swapWindowBack}, {keyK, KeyAction::swapWindowNext},
+      {keyN, KeyAction::FocusNextDesktop}, {keyO, KeyAction::FocusPreviousDesktop}
     };
     grabKey(XCB_MOD_MASK_4, key0);
     grabKey(XCB_MOD_MASK_4, key1);
@@ -799,6 +846,8 @@ static void onKeyPress(xcb_generic_event_t *event) {
         case KeyAction::swapWindowNext:
             swapWindowNext(kp, state);
             break;
+        case KeyAction::FocusPreviousDesktop: FocusPreviousDesktop(kp, state); break;
+        case KeyAction::FocusNextDesktop: FocusNextDesktop(kp, state); break;
         case KeyAction::GotoWindow1:
         case KeyAction::GotoWindow2:
         case KeyAction::GotoWindow3:
