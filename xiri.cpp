@@ -44,8 +44,8 @@ std::string customBar = "polybar"; // This will be used for running custom bar
 uint32_t desktopsCount = 4;
 uint32_t currentDesktop = 0; 
 static std::vector<xcb_window_t> clients;
+static std::vector<uint32_t> clientDesktops;
 static size_t focusedIndex = 0;
-static size_t focusedWorkspace = 0;
 bool fullscreen = false;
 bool activeBar = false;
 bool DesktopMode = false;
@@ -64,6 +64,7 @@ static xcb_atom_t netWmWindowTypeDock;
 // Desktops atom_t setup
 static xcb_atom_t atom_number_of_desktops;
 static xcb_atom_t atom_current_desktop;
+static xcb_atom_t atom_net_wm_desktop;
 
 enum class KeyAction {
   SwitchWindow, SpawnTerminal, KillFocused, SpawnLauncher,
@@ -105,6 +106,7 @@ static void removeClient(xcb_window_t win);
 static void checkClients();
 static void focusNext(xcb_key_press_event_t *kp, uint16_t state);
 static void focusPrev(xcb_key_press_event_t *kp, uint16_t state);
+static void focusAdjacent(int direction);
 static void switchWindow(xcb_key_press_event_t *kp, uint16_t state);
 static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber);
 static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height);
@@ -125,6 +127,8 @@ static void onMapRequest(xcb_generic_event_t *event);
 static void onConfigureRequest(xcb_generic_event_t *event);
 static void onEnterNotify(xcb_generic_event_t *event);
 static void onKeyPress(xcb_generic_event_t *event);
+static void switchDesktop(uint32_t desktop);
+static void updateDesktopProperties();
 
 
 
@@ -145,6 +149,11 @@ int main() {
     screen = iter.data;
     netWmWindowType = internAtom("_NET_WM_WINDOW_TYPE");
     netWmWindowTypeDock = internAtom("_NET_WM_WINDOW_TYPE_DOCK");
+    atom_number_of_desktops = internAtom("_NET_NUMBER_OF_DESKTOPS");
+    atom_current_desktop = internAtom("_NET_CURRENT_DESKTOP");
+    atom_net_wm_desktop = internAtom("_NET_WM_DESKTOP");
+
+    updateDesktopProperties();
 
     /* SubstructureRedirect fails if another WM runs */
     uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
@@ -168,6 +177,7 @@ int main() {
     changeResolution(monitor.c_str(), customWidgth, customHeight);
     setupWallpaper(wallpaper.c_str());
     setxkbmapconfig(keyboardconfig.c_str());
+    spawn("/usr/lib/hyprpolkitagent/hyprpolkitagent");
     xcb_generic_event_t *event;
     while ((event = xcb_wait_for_event(connection))) {
         switch (event->response_type & ~0x80) {
@@ -362,13 +372,32 @@ static void monocleResize(xcb_window_t win) {
 
 
 static void applyMonocleAll() {
-    /* only focused window needs to be full size + raised;
-       others stay mapped underneath */
-    for (auto w : clients) monocleResize(w);
+    for (size_t i = 0; i < clients.size(); ++i) {
+      if (clientDesktops[i] == currentDesktop) {
+        xcb_map_window(connection, clients[i]);
+        monocleResize(clients[i]);
+      } else {
+        xcb_unmap_window(connection, clients[i]);
+      }
+    }
 }
 
 static void focusClient(size_t idx) {
-    if (clients.empty()) return;
+    if (clients.empty() || idx >= clients.size()) return;
+
+    if (clientDesktops[idx] != currentDesktop) {
+      const auto visible = std::find(clientDesktops.begin(), clientDesktops.end(),
+                                     currentDesktop);
+      if (visible == clientDesktops.end()) {
+        applyMonocleAll();
+        xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+                            XCB_NONE, XCB_CURRENT_TIME);
+        xcb_flush(connection);
+        return;
+      }
+      idx = static_cast<size_t>(visible - clientDesktops.begin());
+    }
+
     focusedIndex = idx % clients.size();
     xcb_window_t win = clients[focusedIndex];
     applyMonocleAll();
@@ -423,7 +452,11 @@ static void normalizeFocusedIndex() {
 }
 
 static void removeClient(xcb_window_t win) {
-    clients.erase(std::remove(clients.begin(), clients.end(), win), clients.end());
+    const auto it = std::find(clients.begin(), clients.end(), win);
+    if (it == clients.end()) return;
+    const size_t index = static_cast<size_t>(it - clients.begin());
+    clients.erase(it);
+    clientDesktops.erase(clientDesktops.begin() + index);
     normalizeFocusedIndex();
     if (!clients.empty()) focusClient(focusedIndex);
 }
@@ -433,9 +466,12 @@ static void checkClients() {
   if (clients.empty()) return;
 
   std::vector<xcb_window_t> validClients;
+  std::vector<uint32_t> validClientDesktops;
   validClients.reserve(clients.size());
+  validClientDesktops.reserve(clientDesktops.size());
 
-  for (xcb_window_t win : clients) {
+  for (size_t i = 0; i < clients.size(); ++i) {
+    xcb_window_t win = clients[i];
     if (isUtilityWindow(win)) {
       std::cout << "Utility client detected, removing it from the client list" << std::endl;
       continue;
@@ -449,10 +485,12 @@ static void checkClients() {
     }
     free(reply);
     validClients.push_back(win);
+    validClientDesktops.push_back(clientDesktops[i]);
   }
 
   if (validClients.size() != clients.size()) {
     clients.swap(validClients);
+    clientDesktops.swap(validClientDesktops);
     normalizeFocusedIndex();
     if (!clients.empty()) {
       focusClient(focusedIndex);
@@ -468,11 +506,7 @@ static void focusNext(xcb_key_press_event_t *kp, uint16_t state) {
   checkClients();
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
-  if (state & XCB_MOD_MASK_SHIFT) {
-    focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
-  } else {
-    focusClient(focusedIndex + 1);   
-  }
+  focusAdjacent(state & XCB_MOD_MASK_SHIFT ? -1 : 1);
    std::cout << "Window scrolled, current window is:" << focusedIndex << std::endl;
    std::cout << "Current client size is:" << clients.size() << std::endl;
 }
@@ -481,15 +515,7 @@ static void focusPrev(xcb_key_press_event_t *kp, uint16_t state) {
   checkClients();
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
-  if (state & XCB_MOD_MASK_SHIFT) {
-    focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
-  } else {
-    if (focusedIndex > 0) {
-      focusClient(focusedIndex - 1);
-    } else {
-      focusClient(clients.size() - 1);
-    }
-  }
+  focusAdjacent(state & XCB_MOD_MASK_SHIFT ? 1 : -1);
   std::cout << "Window scrolled, current window is:" << focusedIndex << std::endl;
   std::cout << "Current client size is:" << clients.size() << std::endl;
 }
@@ -499,13 +525,27 @@ static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
   checkClients();
   if (kp->time - lastSwitchTime < 150) return;
       lastSwitchTime = kp->time;
-  if (state & XCB_MOD_MASK_SHIFT) {
-    focusClient(focusedIndex == 0 ? clients.size() - 1 : focusedIndex - 1);
-  } else {
-    focusClient(focusedIndex + 1);
-  }
+  focusAdjacent(state & XCB_MOD_MASK_SHIFT ? -1 : 1);
    std::cout << "Window switched, current window is:" << focusedIndex << std::endl;
    std::cout << "Current client size is:" << clients.size() << std::endl;
+}
+
+static void focusAdjacent(int direction) {
+  std::vector<size_t> visible;
+  for (size_t i = 0; i < clients.size(); ++i) {
+    if (clientDesktops[i] == currentDesktop) visible.push_back(i);
+  }
+  if (visible.empty()) return;
+
+  auto current = std::find(visible.begin(), visible.end(), focusedIndex);
+  size_t position = current == visible.end()
+      ? 0
+      : static_cast<size_t>(current - visible.begin());
+  const size_t count = visible.size();
+  const size_t next = static_cast<size_t>(
+      (static_cast<int>(position) + direction + static_cast<int>(count)) %
+      static_cast<int>(count));
+  focusClient(visible[next]);
 }
 
 
@@ -552,21 +592,48 @@ static void swapWindowNext(xcb_key_press_event_t *kp, uint16_t state) {
 }
 
 static void FocusPreviousDesktop(xcb_key_press_event_t *kp, uint16_t state) {
-   if (currentDesktop == 0) {
-     currentDesktop = desktopsCount;
-   } else {
-     currentDesktop = currentDesktop - 1;
-   }
-  std::cout << "Current Desktop is:" << currentDesktop << std::endl;
+  (void)kp;
+  (void)state;
+  if (desktopsCount == 0) return;
+  switchDesktop(currentDesktop == 0 ? desktopsCount - 1 : currentDesktop - 1);
 }
 
 static void FocusNextDesktop(xcb_key_press_event_t *kp, uint16_t state) {
-  if (currentDesktop > desktopsCount) {
-    currentDesktop = 0;
-  } else {
-    currentDesktop = currentDesktop + 1;
+  (void)kp;
+  (void)state;
+  if (desktopsCount == 0) return;
+  switchDesktop((currentDesktop + 1) % desktopsCount);
+}
+
+static void updateDesktopProperties() {
+  if (atom_number_of_desktops != XCB_ATOM_NONE) {
+    xcb_change_property(connection, XCB_PROP_MODE_REPLACE, screen->root,
+                        atom_number_of_desktops, XCB_ATOM_CARDINAL, 32, 1,
+                        &desktopsCount);
   }
-  std::cout << "current Desktop is:" << currentDesktop << std::endl;
+  if (atom_current_desktop != XCB_ATOM_NONE) {
+    xcb_change_property(connection, XCB_PROP_MODE_REPLACE, screen->root,
+                        atom_current_desktop, XCB_ATOM_CARDINAL, 32, 1,
+                        &currentDesktop);
+  }
+}
+
+static void switchDesktop(uint32_t desktop) {
+  if (desktop >= desktopsCount || desktop == currentDesktop) return;
+  currentDesktop = desktop;
+  DesktopMode = false;
+  focusedIndex = 0;
+  applyMonocleAll();
+  updateDesktopProperties();
+
+  for (size_t i = 0; i < clients.size(); ++i) {
+    if (clientDesktops[i] == currentDesktop) {
+      focusClient(i);
+      break;
+    }
+  }
+  xcb_flush(connection);
+  std::cout << "Current Desktop is: " << currentDesktop << std::endl;
 }
 
 // Additional functions
@@ -632,16 +699,18 @@ static void launchSpecialApplication() {
 
 static void showDesktop() {
   if (DesktopMode == false) {
-    for (auto w : clients) {
-      xcb_unmap_window(connection, w);
+    for (size_t i = 0; i < clients.size(); ++i) {
+      if (clientDesktops[i] == currentDesktop) {
+        xcb_unmap_window(connection, clients[i]);
+      }
     }
     DesktopMode = true;
   } else {
-    for (auto w : clients) {
-      xcb_map_window(connection, w);
-    }
     DesktopMode = false;
+    applyMonocleAll();
+    if (!clients.empty()) focusClient(focusedIndex);
   }
+  xcb_flush(connection);
 }
 
 static void exitSession() {
@@ -745,6 +814,8 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4, keyLeft);
     grabKey(XCB_MOD_MASK_4, keyRight);
     grabKey(XCB_MOD_MASK_4, printScreen);
+    grabKey(XCB_MOD_MASK_4, keyN);
+    grabKey(XCB_MOD_MASK_4, keyO);
 }
 
 /* event handlers */
@@ -759,6 +830,13 @@ static void onMapRequest(xcb_generic_event_t *event) {
   }
 
     clients.push_back(mr->window);
+    clientDesktops.push_back(currentDesktop);
+    uint32_t desktop = currentDesktop;
+    if (atom_net_wm_desktop != XCB_ATOM_NONE) {
+      xcb_change_property(connection, XCB_PROP_MODE_REPLACE, mr->window,
+                          atom_net_wm_desktop, XCB_ATOM_CARDINAL, 32, 1,
+                          &desktop);
+    }
 
     uint32_t mask = XCB_CW_EVENT_MASK;
     uint32_t values = XCB_EVENT_MASK_ENTER_WINDOW;
