@@ -58,13 +58,14 @@ static xcb_key_symbols_t  *keysyms;
 static xcb_keycode_t key1, key2, key3, key4, key5, key6, key7, key8, key9, key0, keyA, keyB, keyC, keyD, keyE, keyF, keyG, keyH, keyI, keyJ, keyK, keyL, keyM, keyN, keyO, keyP, keyQ, keyR, keyS, keyT, keyU, keyV, keyW, keyX, keyY, keyZ, keyTab, keyEnter, keyLeft, keyRight, printScreen;
 static xcb_timestamp_t lastSpawnTime = 0;
 static xcb_timestamp_t lastSwitchTime = 0;
-static xcb_atom_t netWmWindowType;
-static xcb_atom_t netWmWindowTypeDock;
+
 
 // Desktops atom_t setup
 static xcb_atom_t atom_number_of_desktops;
 static xcb_atom_t atom_current_desktop;
 static xcb_atom_t atom_net_wm_desktop;
+static xcb_atom_t netWmWindowType;
+static xcb_atom_t netWmWindowTypeDock;
 
 enum class KeyAction {
   SwitchWindow, SpawnTerminal, KillFocused, SpawnLauncher,
@@ -85,119 +86,6 @@ static const uint16_t lockMasks[4] = {
     XCB_MOD_MASK_2,                       /* NumLock (common mapping) */
     XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2
 };
-
-
-
-/* functions's skeletons */
-
-static std::string trim(const std::string &value);
-static std::string unquote(const std::string &value);
-static void readConfigFile();
-static xcb_atom_t internAtom(const char *name);
-static bool isUtilityWindow(xcb_window_t window);
-static void spawn(const char *cmd);
-static void monocleResize(xcb_window_t win);
-static void applyMonocleAll();
-static void focusClient(size_t idx);
-static void refocusCleint();
-static void changeFullscreen();
-static void normalizeFocusedIndex();
-static void removeClient(xcb_window_t win);
-static void checkClients();
-static void focusNext(xcb_key_press_event_t *kp, uint16_t state);
-static void focusPrev(xcb_key_press_event_t *kp, uint16_t state);
-static void focusAdjacent(int direction);
-static void switchWindow(xcb_key_press_event_t *kp, uint16_t state);
-static void gotoWindow(xcb_key_press_event_t *kp, size_t windownumber);
-static void changeResolution(const char *monitorChoice ,uint32_t widgth, uint32_t height);
-static void setupWallpaper(const char *wallpaperpath);
-static void launchBar();
-static void setxkbmapconfig(const char *variant);
-static void killFocused();
-static void swapWindowBack(xcb_key_press_event_t *kp, uint16_t state);
-static void swapWindowNext(xcb_key_press_event_t *kp, uint16_t state);
-static void launchScreenshot();
-static void launchSpecialApplication();
-static void showDesktop();
-static void exitSession();
-static xcb_keycode_t firstKeycode(xcb_keysym_t sym);
-static void grabKey(uint16_t modifiers, xcb_keycode_t code);
-static void grabKeys();
-static void onMapRequest(xcb_generic_event_t *event);
-static void onConfigureRequest(xcb_generic_event_t *event);
-static void onEnterNotify(xcb_generic_event_t *event);
-static void onKeyPress(xcb_generic_event_t *event);
-static void switchDesktop(uint32_t desktop);
-static void updateDesktopProperties();
-
-
-
-/* main function */
-
-int main() {
-    signal(SIGCHLD, SIG_IGN); /* auto-reap children */
-  readConfigFile();
-
-    connection = xcb_connect(NULL, NULL);
-    if (xcb_connection_has_error(connection)) {
-        fprintf(stderr, "cannot connect to X server\n");
-        return 1;
-    }
-
-    const xcb_setup_t *setup = xcb_get_setup(connection);
-    xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-    screen = iter.data;
-    netWmWindowType = internAtom("_NET_WM_WINDOW_TYPE");
-    netWmWindowTypeDock = internAtom("_NET_WM_WINDOW_TYPE_DOCK");
-    atom_number_of_desktops = internAtom("_NET_NUMBER_OF_DESKTOPS");
-    atom_current_desktop = internAtom("_NET_CURRENT_DESKTOP");
-    atom_net_wm_desktop = internAtom("_NET_WM_DESKTOP");
-
-    updateDesktopProperties();
-
-    /* SubstructureRedirect fails if another WM runs */
-    uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
-                         XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
-    xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(
-        connection, screen->root, XCB_CW_EVENT_MASK, &rootMask);
-    xcb_generic_error_t *err = xcb_request_check(connection, cookie);
-    if (err) {
-        fprintf(stderr, "another WM is already running\n");
-        free(err);
-        xcb_disconnect(connection);
-        return 1;
-    }
-
-    keysyms = xcb_key_symbols_alloc(connection);
-    grabKeys();
-    xcb_flush(connection);
-    readConfigFile();
-    
-    // Autostart Functions
-    changeResolution(monitor.c_str(), customWidgth, customHeight);
-    setupWallpaper(wallpaper.c_str());
-    setxkbmapconfig(keyboardconfig.c_str());
-    spawn("/usr/lib/hyprpolkitagent/hyprpolkitagent");
-    xcb_generic_event_t *event;
-    while ((event = xcb_wait_for_event(connection))) {
-        switch (event->response_type & ~0x80) {
-            case XCB_MAP_REQUEST:       onMapRequest(event);       break;
-            case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
-        /*  case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
-            case XCB_UNMAP_NOTIFY:      onUnmapNotify(event);      break; -- This 2 strokes are unrecommended to uncomment, because
-            they can cause some bugs with focused index */
-            case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
-            case XCB_KEY_PRESS:         onKeyPress(event);         break;
-            default: break;
-        }
-        free(event);
-    }
-
-    xcb_key_symbols_free(keysyms);
-    xcb_disconnect(connection);
-    return 0;
-}
-
 
 /* config reader function */
 
@@ -296,20 +184,6 @@ internAtom(const char *name) {
   return atom;
 }
 
-/*
-static xcb_atom_t intern_atom(xcb_connection_t *con, const char *name) {
-  xcb_intern_atom_cookie_t cookie = 
-    xcb_intern_atom(con, 0, strlen(name), name);
-  xcb_intern_atom_reply_t *reply =
-    xcb_intern_atom_reply(con, cookie, NULL);
-  if (!reply)
-    return XCB_ATOM_NONE;
-
-  xcb_atom_t atom = reply->atom;
-  free(reply);
-  return atom;
-} */
-
 static bool isUtilityWindow(xcb_window_t window) {
   if (netWmWindowType != XCB_ATOM_NONE && netWmWindowTypeDock != XCB_ATOM_NONE) {
     xcb_get_property_cookie_t cookie = xcb_get_property(
@@ -391,8 +265,8 @@ static void focusClient(size_t idx) {
       if (visible == clientDesktops.end()) {
         applyMonocleAll();
         xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT,
-                            XCB_NONE, XCB_CURRENT_TIME);
-        xcb_flush(connection);
+                            screen->root, XCB_CURRENT_TIME);
+        xcb_flush(connection); 
         return;
       }
       idx = static_cast<size_t>(visible - clientDesktops.begin());
@@ -401,7 +275,6 @@ static void focusClient(size_t idx) {
     focusedIndex = idx % clients.size();
     xcb_window_t win = clients[focusedIndex];
     applyMonocleAll();
-    // monocleResize(win);
 
     uint32_t stackMode = XCB_STACK_MODE_ABOVE;
     xcb_configure_window(connection, win, XCB_CONFIG_WINDOW_STACK_MODE, &stackMode);
@@ -414,7 +287,6 @@ static void refocusCleint() {
     if (clients.empty()) return;
     xcb_window_t win = clients[focusedIndex];
     applyMonocleAll();
-    // monocleResize(win);
 
     uint32_t stackMode = XCB_STACK_MODE_ABOVE;
     xcb_configure_window(connection, win, XCB_CONFIG_WINDOW_STACK_MODE, &stackMode);
@@ -440,6 +312,23 @@ static void changeFullscreen() {
 
 /* scrolling functions */
 
+static void focusAdjacent(int direction) {
+  std::vector<size_t> visible;
+  for (size_t i = 0; i < clients.size(); ++i) {
+    if (clientDesktops[i] == currentDesktop) visible.push_back(i);
+  }
+  if (visible.empty()) return;
+
+  auto current = std::find(visible.begin(), visible.end(), focusedIndex);
+  size_t position = current == visible.end()
+      ? 0
+      : static_cast<size_t>(current - visible.begin());
+  const size_t count = visible.size();
+  const size_t next = static_cast<size_t>(
+      (static_cast<int>(position) + direction + static_cast<int>(count)) %
+      static_cast<int>(count));
+  focusClient(visible[next]);
+}
 
 static void normalizeFocusedIndex() {
   if (clients.empty()) {
@@ -451,6 +340,37 @@ static void normalizeFocusedIndex() {
   }
 }
 
+static void switchDesktop(uint32_t desktop);
+
+static void focusAvailableDesktop() {
+    if (clients.empty()) {
+      focusedIndex = 0;
+      xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+                          screen->root, XCB_CURRENT_TIME);
+      xcb_flush(connection);
+      return;
+    }
+
+    if (std::find(clientDesktops.begin(), clientDesktops.end(), currentDesktop) !=
+        clientDesktops.end()) {
+      focusClient(focusedIndex);
+      return;
+    }
+
+    for (uint32_t offset = 1; offset < desktopsCount; ++offset) {
+      const uint32_t desktop = (currentDesktop + offset) % desktopsCount;
+      if (std::find(clientDesktops.begin(), clientDesktops.end(), desktop) !=
+          clientDesktops.end()) {
+        switchDesktop(desktop);
+        return;
+      }
+    }
+
+    xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+                        screen->root, XCB_CURRENT_TIME);
+    xcb_flush(connection);
+}
+
 static void removeClient(xcb_window_t win) {
     const auto it = std::find(clients.begin(), clients.end(), win);
     if (it == clients.end()) return;
@@ -458,7 +378,7 @@ static void removeClient(xcb_window_t win) {
     clients.erase(it);
     clientDesktops.erase(clientDesktops.begin() + index);
     normalizeFocusedIndex();
-    if (!clients.empty()) focusClient(focusedIndex);
+    focusAvailableDesktop();
 }
 
 
@@ -492,9 +412,7 @@ static void checkClients() {
     clients.swap(validClients);
     clientDesktops.swap(validClientDesktops);
     normalizeFocusedIndex();
-    if (!clients.empty()) {
-      focusClient(focusedIndex);
-    }
+    focusAvailableDesktop();
   } else {
     normalizeFocusedIndex();
   }
@@ -528,24 +446,6 @@ static void switchWindow(xcb_key_press_event_t *kp, uint16_t state) {
   focusAdjacent(state & XCB_MOD_MASK_SHIFT ? -1 : 1);
    std::cout << "Window switched, current window is:" << focusedIndex << std::endl;
    std::cout << "Current client size is:" << clients.size() << std::endl;
-}
-
-static void focusAdjacent(int direction) {
-  std::vector<size_t> visible;
-  for (size_t i = 0; i < clients.size(); ++i) {
-    if (clientDesktops[i] == currentDesktop) visible.push_back(i);
-  }
-  if (visible.empty()) return;
-
-  auto current = std::find(visible.begin(), visible.end(), focusedIndex);
-  size_t position = current == visible.end()
-      ? 0
-      : static_cast<size_t>(current - visible.begin());
-  const size_t count = visible.size();
-  const size_t next = static_cast<size_t>(
-      (static_cast<int>(position) + direction + static_cast<int>(count)) %
-      static_cast<int>(count));
-  focusClient(visible[next]);
 }
 
 
@@ -591,20 +491,6 @@ static void swapWindowNext(xcb_key_press_event_t *kp, uint16_t state) {
   focusClient(focusedIndex);
 }
 
-static void FocusPreviousDesktop(xcb_key_press_event_t *kp, uint16_t state) {
-  (void)kp;
-  (void)state;
-  if (desktopsCount == 0) return;
-  switchDesktop(currentDesktop == 0 ? desktopsCount - 1 : currentDesktop - 1);
-}
-
-static void FocusNextDesktop(xcb_key_press_event_t *kp, uint16_t state) {
-  (void)kp;
-  (void)state;
-  if (desktopsCount == 0) return;
-  switchDesktop((currentDesktop + 1) % desktopsCount);
-}
-
 static void updateDesktopProperties() {
   if (atom_number_of_desktops != XCB_ATOM_NONE) {
     xcb_change_property(connection, XCB_PROP_MODE_REPLACE, screen->root,
@@ -632,9 +518,31 @@ static void switchDesktop(uint32_t desktop) {
       break;
     }
   }
+  if (std::find(clientDesktops.begin(), clientDesktops.end(), currentDesktop) ==
+      clientDesktops.end()) {
+    xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+                        screen->root, XCB_CURRENT_TIME);
+  }
   xcb_flush(connection);
   std::cout << "Current Desktop is: " << currentDesktop << std::endl;
 }
+
+static void FocusPreviousDesktop(xcb_key_press_event_t *kp, uint16_t state) {
+  (void)kp;
+  (void)state;
+  if (desktopsCount == 0) return;
+  switchDesktop(currentDesktop == 0 ? desktopsCount - 1 : currentDesktop - 1);
+}
+
+static void FocusNextDesktop(xcb_key_press_event_t *kp, uint16_t state) {
+  (void)kp;
+  (void)state;
+  if (desktopsCount == 0) return;
+  switchDesktop((currentDesktop + 1) % desktopsCount);
+}
+
+
+
 
 // Additional functions
 
@@ -862,14 +770,9 @@ static void onConfigureRequest(xcb_generic_event_t *event) {
     xcb_configure_window(connection, cr->window, mask, values);
 }
 
-/*
 static void onDestroyNotify(xcb_generic_event_t *event) {
     removeClient(((xcb_destroy_notify_event_t *)event)->window);
-} */
-/*
-static void onUnmapNotify(xcb_generic_event_t *event) {
-    removeClient(((xcb_unmap_notify_event_t *)event)->window);
-} */
+}
 
 static void onEnterNotify(xcb_generic_event_t *event) {
     xcb_enter_notify_event_t *en = (xcb_enter_notify_event_t *)event;
@@ -942,3 +845,68 @@ static void onKeyPress(xcb_generic_event_t *event) {
           break;
     }
 } 
+
+
+/* main function */
+
+int main() {
+    signal(SIGCHLD, SIG_IGN); /* auto-reap children */
+  readConfigFile();
+
+    connection = xcb_connect(NULL, NULL);
+    if (xcb_connection_has_error(connection)) {
+        fprintf(stderr, "cannot connect to X server\n");
+        return 1;
+    }
+
+    const xcb_setup_t *setup = xcb_get_setup(connection);
+    xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
+    screen = iter.data;
+    netWmWindowType = internAtom("_NET_WM_WINDOW_TYPE"); // Workspaces atom setup
+    netWmWindowTypeDock = internAtom("_NET_WM_WINDOW_TYPE_DOCK");
+    atom_number_of_desktops = internAtom("_NET_NUMBER_OF_DESKTOPS");
+    atom_current_desktop = internAtom("_NET_CURRENT_DESKTOP");
+    atom_net_wm_desktop = internAtom("_NET_WM_DESKTOP");
+
+    updateDesktopProperties();
+
+    /* SubstructureRedirect fails if another WM runs */
+    uint32_t rootMask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
+                         XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
+    xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(
+        connection, screen->root, XCB_CW_EVENT_MASK, &rootMask);
+    xcb_generic_error_t *err = xcb_request_check(connection, cookie);
+    if (err) {
+        fprintf(stderr, "another WM is already running\n");
+        free(err);
+        xcb_disconnect(connection);
+        return 1;
+    }
+
+    keysyms = xcb_key_symbols_alloc(connection);
+    grabKeys();
+    xcb_flush(connection);
+    readConfigFile();
+    
+    // Autostart Functions
+    changeResolution(monitor.c_str(), customWidgth, customHeight);
+    setupWallpaper(wallpaper.c_str());
+    setxkbmapconfig(keyboardconfig.c_str());
+    spawn("/usr/lib/hyprpolkitagent/hyprpolkitagent");
+    xcb_generic_event_t *event;
+    while ((event = xcb_wait_for_event(connection))) {
+        switch (event->response_type & ~0x80) {
+            case XCB_MAP_REQUEST:       onMapRequest(event);       break;
+            case XCB_CONFIGURE_REQUEST: onConfigureRequest(event); break;
+            case XCB_DESTROY_NOTIFY:    onDestroyNotify(event);    break;
+            case XCB_ENTER_NOTIFY:      onEnterNotify(event);      break;
+            case XCB_KEY_PRESS:         onKeyPress(event);         break;
+            default: break;
+        }
+        free(event);
+    }
+
+    xcb_key_symbols_free(keysyms);
+    xcb_disconnect(connection);
+    return 0;
+}
