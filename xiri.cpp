@@ -49,7 +49,7 @@ static size_t focusedIndex = 0;
 bool fullscreen = false;
 bool activeBar = false;
 bool DesktopMode = false;
-
+bool TilingMode = false;
 
 static xcb_connection_t   *connection;
 static xcb_screen_t       *screen;
@@ -73,7 +73,8 @@ enum class KeyAction {
   GotoWindow1, GotoWindow2, GotoWindow3, GotoWindow4, GotoWindow5,
   GotoWindow6, GotoWindow7, GotoWindow8, GotoWindow9, GotoWindow10,
   launchScreenshot, launchSpecialApplication, exitSession, launchBar,
-  showDesktop, swapWindowBack, swapWindowNext, FocusPreviousDesktop, FocusNextDesktop
+  showDesktop, swapWindowBack, swapWindowNext, FocusPreviousDesktop, FocusNextDesktop,
+  switchTilingMode
 };
 
 static std::unordered_map<xcb_keycode_t, KeyAction> keyActions;
@@ -224,23 +225,45 @@ static void spawn(const char *cmd) {
 
 
 static void monocleResize(xcb_window_t win) {
-  if (fullscreen == false) {
-    if (activeBar == false) {
-      uint32_t values[4] = {windowGap/2, windowGap/2, windowWidgth, windowHeight};
-      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-      XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-      xcb_configure_window (connection, win, mask, values);
+  if (TilingMode == false) {
+    if (fullscreen == false) {
+      if (activeBar == false) {
+        uint32_t values[4] = {windowGap/2, windowGap/2, windowWidgth, windowHeight};
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+        XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window (connection, win, mask, values);
+      } else {
+        uint32_t values[4] = {windowGap/2, windowGap/2 + 35, windowWidgth, windowHeight - 35};
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+        XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window (connection, win, mask, values);
+      }
     } else {
-      uint32_t values[4] = {windowGap/2, windowGap/2 + 35, windowWidgth, windowHeight - 35};
+      uint32_t values[4] = {0, 0, customWidgth, customHeight};
       uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-      XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+                      XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
       xcb_configure_window (connection, win, mask, values);
     }
   } else {
-    uint32_t values[4] = {0, 0, customWidgth, customHeight};
-    uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-                    XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-    xcb_configure_window (connection, win, mask, values);
+    printf("Nothing for now");
+    if (fullscreen == false) {
+      if (activeBar == false) {
+        uint32_t values[4] = {windowGap/2, windowGap/2, windowWidgth, windowHeight};
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+        XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window (connection, win, mask, values);
+      } else {
+        uint32_t values[4] = {windowGap/2, windowGap/2 + 35, windowWidgth, windowHeight - 35};
+        uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+        XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+        xcb_configure_window (connection, win, mask, values);
+      }
+    } else {
+      uint32_t values[4] = {0, 0, customWidgth, customHeight};
+      uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                      XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+      xcb_configure_window (connection, win, mask, values);
+    }
   }
 }
 
@@ -311,6 +334,16 @@ static void changeFullscreen() {
 
 
 /* scrolling functions */
+
+static void switchTilingMode() {
+  if (TilingMode) {
+    TilingMode = false;
+    printf("Tiling mode turned off.");
+  } else {
+    TilingMode = true;
+    printf("Tiling mode turned on");
+  }
+}
 
 static void focusAdjacent(int direction) {
   std::vector<size_t> visible;
@@ -693,9 +726,10 @@ static void grabKeys() {
       {key5, KeyAction::GotoWindow5}, {key6, KeyAction::GotoWindow6},
       {key7, KeyAction::GotoWindow7}, {key8, KeyAction::GotoWindow8},
       {key9, KeyAction::GotoWindow9}, {key0, KeyAction::GotoWindow10},
-      {printScreen, KeyAction::launchScreenshot}, {keyP, KeyAction::launchBar},
+      {printScreen, KeyAction::launchScreenshot}, {keyB, KeyAction::launchBar},
       {keyH, KeyAction::showDesktop}, {keyJ, KeyAction::swapWindowBack}, {keyK, KeyAction::swapWindowNext},
-      {keyN, KeyAction::FocusNextDesktop}, {keyO, KeyAction::FocusPreviousDesktop}
+      {keyN, KeyAction::FocusNextDesktop}, {keyO, KeyAction::FocusPreviousDesktop},
+      {keyP, KeyAction::switchTilingMode}
     };
     grabKey(XCB_MOD_MASK_4, key0);
     grabKey(XCB_MOD_MASK_4, key1);
@@ -719,6 +753,7 @@ static void grabKeys() {
     grabKey(XCB_MOD_MASK_4, keyF);
     grabKey(XCB_MOD_MASK_4, keyP);
     grabKey(XCB_MOD_MASK_4, keyH);
+    grabKey(XCB_MOD_MASK_4, keyB);
     grabKey(XCB_MOD_MASK_4, keyLeft);
     grabKey(XCB_MOD_MASK_4, keyRight);
     grabKey(XCB_MOD_MASK_4, printScreen);
@@ -843,6 +878,7 @@ static void onKeyPress(xcb_generic_event_t *event) {
             break;
         case KeyAction::SpawnTerminal:
           break;
+        case KeyAction::switchTilingMode: switchTilingMode(); break;
     }
 } 
 
